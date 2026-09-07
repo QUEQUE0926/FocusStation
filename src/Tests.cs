@@ -15,7 +15,42 @@ namespace LittleFocus {
   static void Equal(double a,double b,string message){Check(Math.Abs(a-b)<0.00001,message+" ("+a+" vs "+b+")");}
   static void Throws(Action action,string message){bool threw=false;try{action();}catch(Exception){threw=true;}Check(threw,message);}
   static DateTime Advance(FocusEngine e,DateTime t,int seconds){for(int i=0;i<seconds;i++){t=t.AddSeconds(1);e.Tick(t);}return t;}
-  public static int Main(string[] args){try{SupportChecks();Run(args.Length>0?args[0]:Path.Combine(Environment.CurrentDirectory,"work","tests"));Console.WriteLine("PASS: "+checks+" assertions. No live API credentials used.");return 0;}catch(Exception ex){Console.Error.WriteLine(ex);return 1;}}
+  static void RuntimeLogChecks(){
+   var t=DateTime.UtcNow;
+   var d=new AppData{FocusMinutes=1};var p=new Project{Name="写稿"};d.Projects.Add(p);var e=new FocusEngine(d);
+   Check(d.RuntimeEvents!=null,"runtime log initialised");
+   e.Start(p,t);
+   Check(d.RuntimeEvents.Count==1,"start writes one event");
+   Check(d.RuntimeEvents[0].Name=="start"&&d.RuntimeEvents[0].ProjectId==p.Id,"start event carries project");
+   t=t.AddSeconds(30);e.Pause(t);t=t.AddSeconds(5);e.Resume(t);t=t.AddSeconds(30);e.Stop(t,"结束");
+   Check(d.RuntimeEvents.Count==4,"pause resume stop each write one event");
+   Check(d.RuntimeEvents[1].Name=="pause"&&d.RuntimeEvents[2].Name=="resume"&&d.RuntimeEvents[3].Name=="stop","events stay in order");
+   var segs=RuntimeLog.Segments(d);
+   Check(segs.Count==1,"one focus segment");
+   Equal(segs[0].Seconds,60,"segment duration excludes paused time");
+   Check(segs[0].ProjectName=="写稿","segment resolves project name");
+   var sum=RuntimeLog.Summary(d);
+   Check(sum.Starts==1&&sum.Pauses==1&&sum.Resumes==1,"summary counts today's events");
+   Check(sum.SegmentCount==1&&sum.Headline.Contains("今天启动了 1 次"),"summary headline reflects the day");
+   var csv=RuntimeLog.Csv(d);
+   Check(csv.StartsWith("时间,事件,任务,状态,专注时长,说明"),"csv header");
+   Check(csv.Split('\n').Length>=5,"csv has one line per event plus header");
+   Check(csv.Contains("开始计时")&&csv.Contains("结束计时"),"csv uses readable event names");
+   Check(RuntimeLog.NameText("start")=="开始计时","known event names are translated");
+   Check(RuntimeLog.NameText("nope")=="nope","unknown event names pass through instead of becoming 其他");
+   Check(RuntimeLog.NameText("")=="其他"&&RuntimeLog.NameText(null)=="其他","blank event names fall back");
+   Check(RuntimeLog.ProjectName(d,p.Id)=="写稿","known project name");
+   Check(RuntimeLog.ProjectName(d,"missing")=="（已删除的任务）","missing project falls back");
+   Check(RuntimeLog.ProjectName(d,"")=="","blank project id stays blank");
+   RuntimeLog.Clear(d);
+   Check(d.RuntimeEvents.Count==0&&RuntimeLog.Segments(d).Count==0,"clear empties log and segments");
+   var big=new AppData();big.Projects.Add(new Project{Name="压力测试"});var bigEngine=new FocusEngine(big);
+   for(int i=0;i<1100;i++){bigEngine.Start(big.Projects[0],t);bigEngine.Stop(t,"结束");}
+   Check(big.RuntimeEvents.Count==RuntimeLog.Keep,"log is capped at Keep");
+   Check(big.RuntimeEvents.Count==2000,"log keeps the newest 2000 events");
+   Check(RuntimeLog.Ordered(big).Count==2000,"ordered view returns every kept event");
+  }
+  public static int Main(string[] args){try{SupportChecks();RuntimeLogChecks();Run(args.Length>0?args[0]:Path.Combine(Environment.CurrentDirectory,"work","tests"));Console.WriteLine("PASS: "+checks+" assertions. No live API credentials used.");return 0;}catch(Exception ex){Console.Error.WriteLine(ex);return 1;}}
   static void Run(string dir){
    var sd=new AppData{FocusMinutes=1};var sp=new Project{Name="分段",Stages=Planner.Writing()};sd.Projects.Add(sp);var se=new FocusEngine(sd);var st=new DateTime(2026,9,1,12,0,0,DateTimeKind.Utc);se.Start(sp,st);se.Tick(st.AddSeconds(5));sp.Stages[0].Done=true;se.RefreshStageDeadline();Check(se.Tick(st.AddSeconds(20))=="due","next subtask uses its own deadline");Equal(sd.Records.Where(x=>x.StageId==sp.Stages[0].Id).Sum(x=>x.Seconds),5,"early finished subtask duration");Equal(sd.Records.Where(x=>x.StageId==sp.Stages[1].Id).Sum(x=>x.Seconds),6,"second subtask duration capped at allocation");se.Stop(st.AddSeconds(20),"结束");var copied=Store.Decode(Store.Encode(sd));Check(copied.Records[0].StageId==sp.Stages[0].Id,"subtask log roundtrip");sp.Deleted=true;sp.UpdatedUtc=DateTime.UtcNow.AddSeconds(1);var merge=DataMerge.Merge(copied,sd);Check(merge.Projects[0].Deleted&&merge.Records.Count==0,"deletion sync purges historical records");
    var fast=new ApiConfig{Endpoint="https://api.deepseek.com/chat/completions",Model="deepseek-v4-flash"};Check(Planner.RequestJson(fast,Planner.Payload(sp,fast)).Contains("\"thinking\":{\"type\":\"disabled\"}"),"official DeepSeek thinking disabled");fast.EconomyMode=false;Check(!Planner.RequestJson(fast,Planner.Payload(sp,fast)).Contains("thinking"),"thinking opt-out preserved");fast.EconomyMode=true;fast.Endpoint="https://example.com/chat/completions";Check(!Planner.RequestJson(fast,Planner.Payload(sp,fast)).Contains("thinking"),"no foreign provider thinking parameter");Check(Planner.SupportPolicy.Length<500,"compact skill rules budget");

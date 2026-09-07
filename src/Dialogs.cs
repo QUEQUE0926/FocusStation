@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -104,7 +106,63 @@ namespace LittleFocus {
  public class DataManagementDialog:Form {
   public DataManagementDialog(Action export,Action import,Action folder,Action favorites,Action distraction,Action clearAll){UI.FormStyle(this,"数据与记录",620,340);Padding=new Padding(20);var root=UI.Table(1,54,58,42,54,-100);root.Controls.Add(UI.Label("备份、恢复和本地数据",14,true),0,0);root.Controls.Add(UI.Flow(UI.Button("导出全部数据",export),UI.Button("导入并合并",import),UI.Button("打开数据文件夹",folder)),0,1);root.Controls.Add(UI.Label("导入前会自动备份；导出的记录不含 API 密钥。",9),0,2);var danger=UI.Button("清空全部数据",clearAll);danger.ForeColor=Color.FromArgb(150,45,45);danger.FlatAppearance.BorderColor=Color.FromArgb(190,95,95);root.Controls.Add(UI.Flow(danger),0,3);var warning=UI.Label("清空会移除项目、计时记录、自定义活动、收藏和 AI 本地分析。API 与同步连接配置保留。执行前会在数据文件夹留一份自动备份。",9);warning.AutoEllipsis=false;warning.ForeColor=UI.Muted;root.Controls.Add(warning,0,4);Controls.Add(root);}
  }
- public class AiSettingsHubDialog:Form {
+  public class RuntimeLogDialog:Form {
+   readonly AppData data;readonly Action persist;DataGridView grid;Label headline,detail;ComboBox range;
+   public RuntimeLogDialog(AppData appData,Action save){
+    data=appData;persist=save;
+    UI.FormStyle(this,"运行日志 · 只记录在本机",880,640);Padding=new Padding(20);
+    var root=UI.Table(1,30,26,46,-100,56);
+    headline=UI.Label("",14,true);root.Controls.Add(headline,0,0);
+    detail=UI.Label("",10);detail.ForeColor=UI.Muted;root.Controls.Add(detail,0,1);
+    range=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Width=150,Font=UI.Font(9),Margin=new Padding(4,6,4,4)};
+    range.Items.AddRange(new object[]{"今天","最近 7 天","全部"});range.SelectedIndex=0;
+    range.SelectedIndexChanged+=(s,e)=>RefreshList();
+    var note=UI.Label("日志只写进本机数据文件，最多保留最近 "+RuntimeLog.Keep+" 条；不上传，也不参与 AI 分析。",9);
+    note.AutoEllipsis=false;note.ForeColor=UI.Muted;
+    var bar=UI.Table(2,-100);
+    bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,250));
+    bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+    bar.Controls.Add(UI.Flow(UI.Label("查看范围",10,true),range),0,0);bar.Controls.Add(note,1,0);
+    root.Controls.Add(bar,0,2);
+    grid=UI.Grid();
+    grid.Columns.Add("time","时间");grid.Columns.Add("event","事件");grid.Columns.Add("project","任务");
+    grid.Columns.Add("state","状态");grid.Columns.Add("length","本次专注");grid.Columns.Add("detail","说明");
+    grid.Columns[0].FillWeight=110;grid.Columns[1].FillWeight=100;grid.Columns[2].FillWeight=150;
+    grid.Columns[3].FillWeight=70;grid.Columns[4].FillWeight=90;grid.Columns[5].FillWeight=170;
+    root.Controls.Add(grid,0,3);
+    var clear=UI.Button("清空日志",()=>Clear());clear.ForeColor=Color.FromArgb(150,45,45);clear.FlatAppearance.BorderColor=Color.FromArgb(190,95,95);
+    root.Controls.Add(UI.Flow(UI.Button("导出 CSV",()=>Export()),clear,UI.Button("关闭",()=>Close())),0,4);
+    Controls.Add(root);RefreshList();
+   }
+   void RefreshList(){
+    var summary=RuntimeLog.Summary(data);
+    headline.Text=summary.Headline;detail.Text=summary.Detail;
+    var events=RuntimeLog.Ordered(data);
+    int days=range.SelectedIndex==0?1:range.SelectedIndex==1?7:0;
+    if(days>0){DateTime from=DateTime.Now.Date.AddDays(1-days);events=events.Where(e=>e.AtUtc.ToLocalTime()>=from).ToList();}
+    events.Reverse();
+    var segs=RuntimeLog.Segments(data);
+    grid.Rows.Clear();
+    foreach(var e in events){
+     var seg=segs.FirstOrDefault(x=>x.EndUtc==e.AtUtc&&x.EndName==e.Name);
+     grid.Rows.Add(e.AtUtc.ToLocalTime().ToString("MM-dd HH:mm:ss"),RuntimeLog.NameText(e.Name),RuntimeLog.ProjectName(data,e.ProjectId),RuntimeLog.StateText(e.State),seg==null?"":FocusEngine.Duration(seg.Seconds),e.Detail??"");
+    }
+   }
+   void Export(){
+    using(var d=new SaveFileDialog{Filter="CSV 表格|*.csv",FileName="运行日志-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".csv"}){
+     if(d.ShowDialog(this)!=DialogResult.OK)return;
+     try{File.WriteAllText(d.FileName,RuntimeLog.Csv(data),new UTF8Encoding(true));}
+     catch(Exception ex){MessageBox.Show(this,"导出失败："+ex.Message,"运行日志");}
+    }
+   }
+   void Clear(){
+    var answer=MessageBox.Show(this,"清空后只删掉这份运行日志；项目、计时记录和设置都不受影响。此操作无法撤销。\n\n确定清空吗？","清空运行日志",MessageBoxButtons.YesNo,MessageBoxIcon.Warning);
+    if(answer!=DialogResult.Yes)return;
+    RuntimeLog.Clear(data);if(persist!=null)persist();
+    RefreshList();
+   }
+  }
+  public class AiSettingsHubDialog:Form {
   public AiSettingsHubDialog(AppData data,ApiConfig api,string dir,Action encourage,Action persist=null){UI.FormStyle(this,"AI 与 API 设置",560,300);Padding=new Padding(20);var root=UI.Table(1,52,52,38,52,-100);root.Controls.Add(UI.Label("把常用 AI 配置收在一个次级面板。",11,true),0,0);root.Controls.Add(UI.Flow(UI.Button("配置 API",()=>{using(var d=new ApiDialog(api,dir))d.ShowDialog(this);}),UI.Button("测试 API",encourage)),0,1);root.Controls.Add(UI.Label("AI 个性化",10,true),0,2);root.Controls.Add(UI.Flow(UI.Button("接续卡 AI",()=>{using(var d=new SupportSettingsDialog(data)){if(d.ShowDialog(this)==DialogResult.OK&&persist!=null)persist();}}),UI.Button("AI 鼓励",()=>{using(var d=new EncouragementDialog(data)){if(d.ShowDialog(this)==DialogResult.OK&&persist!=null)persist();}})),0,3);Controls.Add(root);}
  } public class ChallengeNoteDialog:Form {
   public string Reason="";public int Minutes;public bool Accepted;
