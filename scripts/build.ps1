@@ -17,7 +17,28 @@ if (-not (Test-Path -LiteralPath $compiler)) { $compiler = $env:WINDIR + '\Micro
 
 $artifactsDir = $projectRoot + '\artifacts'
 New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
-$outputFile = $artifactsDir + '\FocusStation-v2.0.10.exe'
+
+# Branch-aware output: dev/other branches get a distinct name so they never
+# overwrite the main build (insurance against cross-branch clobbering).
+# Read .git/HEAD directly to avoid depending on the git CLI being on PATH.
+$branch = 'unknown'
+try {
+    $headFile = $projectRoot + '\.git\HEAD'
+    if (Test-Path -LiteralPath $headFile) {
+        $line = (Get-Content -LiteralPath $headFile -Raw).Trim()
+        if ($line -like 'ref:*') {
+            $branch = $line.Substring($line.LastIndexOf('/') + 1)
+        } else {
+            $branch = 'detached'
+        }
+    }
+} catch { }
+$suffix = ''
+if ($branch -ne 'main') {
+    $s = $branch -replace '[^A-Za-z0-9._-]', '-'
+    $suffix = '-' + $s
+}
+$outputFile = $artifactsDir + '\FocusStation-v2.0.10' + $suffix + '.exe'
 
 $sources = @('Model.cs','Planner.cs','Sync.cs','Dialogs.cs','MiniTimer.cs','MainForm.cs','Program.cs') | ForEach-Object { $srcDir + '\' + $_ }
 
