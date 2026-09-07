@@ -2,9 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Xml.Serialization;
 
 namespace LittleFocus {
+ // App display name. Lives in Model.cs (not Program.cs) so every compile
+ // target -- app, UI_TEST build and the UiTests harness (which has its own
+ // Main and omits Program.cs) -- can reference it.
+ public static class Brand {
+#if DEV
+  public const string AppName="专注小站 (dev)";
+#else
+  public const string AppName="专注小站";
+#endif
+ }
  public class Project {
   public string Id = Guid.NewGuid().ToString("N");
   public string Name = "";
@@ -73,6 +84,7 @@ namespace LittleFocus {
   public string Id=Guid.NewGuid().ToString("N"),ProjectId="",ProjectName="",Kind="why",Topic="",Title="",Body="",English="",Explanation="",Chinese="",Phonetics="",SourceUrl="";
   public DateTime AtUtc=DateTime.UtcNow; public int CharCount; public bool Favorite;
  }
+ public class RuntimeEvent { public string Id=Guid.NewGuid().ToString("N"); public DateTime AtUtc=DateTime.UtcNow; public string Kind="signal",Name="",RunId="",ProjectId="",State="",Detail=""; }
  public class AppData {
   public int MiniDimPercent=25;public bool MiniAiRest=false;public int RestLineSeconds=20;public int AiRestClearDays=7;public DateTime AiRestGeneratedUtc;public string MiniRestLines="( ˘ω˘ )\n慢一点也可以\n现在不用完成任何事\n离开屏幕，松松肩\n喝口水，给自己留白\n(๑•̀ㅂ•́)و✧";public List<string> AiRestLines=new List<string>();public bool LowStimulus=false;public string LastProjectId="";
   public bool AutoResumeSuggestions=false;
@@ -98,6 +110,7 @@ namespace LittleFocus {
   public List<ChallengeAdjustment> ChallengeAdjustments=new List<ChallengeAdjustment>();
   public List<FreshContent> FreshContents=new List<FreshContent>();
   public List<DistractionRecord> DistractionLog=new List<DistractionRecord>();
+  public List<RuntimeEvent> RuntimeEvents=new List<RuntimeEvent>();
  }
  public static class AiDefaults {
   public const string Persona="你是一个懂得 ADHD 启动与恢复困难的任务伙伴。以 i-have-adhd 为主要行动和表达规则，以 adhd-friendly-skill 补充去羞耻与恢复支持。像一个了解节奏的可靠同伴，说话直接但不冷淡，有具体依据，不用空泛的夸赞。不扮演医生，不推断我的情绪或诊断。默认称呼我为‘你’，不擅自使用亲昵称呼。人格服务于我当下的状态：专注时不岔题，休息时不催工作，收尾时允许结束。";
@@ -139,7 +152,7 @@ namespace LittleFocus {
    AppData data;
    using(var input=new StringReader(text))using(var reader=System.Xml.XmlReader.Create(input,settings)) data=(AppData)new XmlSerializer(typeof(AppData)).Deserialize(reader);
    if(data==null || data.Version!=1 || data.Projects==null || data.Ideas==null || data.Records==null) throw new InvalidDataException("不支持的数据格式");
-   if(data.ChallengeAdjustments==null)data.ChallengeAdjustments=new List<ChallengeAdjustment>();if(data.FreshContents==null)data.FreshContents=new List<FreshContent>();if(data.DistractionLog==null)data.DistractionLog=new List<DistractionRecord>();
+   if(data.ChallengeAdjustments==null)data.ChallengeAdjustments=new List<ChallengeAdjustment>();if(data.FreshContents==null)data.FreshContents=new List<FreshContent>();if(data.DistractionLog==null)data.DistractionLog=new List<DistractionRecord>();if(data.RuntimeEvents==null)data.RuntimeEvents=new List<RuntimeEvent>();data.RuntimeEvents=data.RuntimeEvents.Where(x=>x!=null&&!String.IsNullOrWhiteSpace(x.Kind)&&!String.IsNullOrWhiteSpace(x.Name)).OrderBy(x=>x.AtUtc).Take(2000).ToList();
    AiDefaults.Migrate(data);
    data.DefaultProjectMinutes=Math.Max(1,Math.Min(720,data.DefaultProjectMinutes));
    data.FocusMinutes=Math.Max(1,Math.Min(240,data.FocusMinutes));
@@ -182,7 +195,8 @@ namespace LittleFocus {
   public List<Stage> Plan=new List<Stage>();
   public List<Stage> Reached=new List<Stage>();
   int stageIndex;
-  public FocusEngine(AppData data) { Data=data; foreach(var r in Data.Records.Where(r=>r.Outcome=="计时中")) r.Outcome="意外退出（已保存部分）"; }
+  public FocusEngine(AppData data) { Data=data; if(Data.RuntimeEvents==null)Data.RuntimeEvents=new List<RuntimeEvent>(); foreach(var r in Data.Records.Where(r=>r.Outcome=="计时中")) r.Outcome="意外退出（已保存部分）"; }
+  void Log(string kind,string name,string detail="") { Data.RuntimeEvents.Add(new RuntimeEvent{AtUtc=DateTime.UtcNow,Kind=kind,Name=name,RunId=RunId,ProjectId=Current==null?"":Current.Id,State=State.ToString(),Detail=detail??""});if(Data.RuntimeEvents.Count>2000)Data.RuntimeEvents.RemoveAt(0); }
   string sessionId="";
   public double SessionSeconds{get{return String.IsNullOrEmpty(sessionId)?0:Data.Records.Where(r=>r.SessionId==sessionId).Sum(r=>r.Seconds);}}
   public void Start(Project project,DateTime now) {
@@ -191,12 +205,12 @@ namespace LittleFocus {
    if(State==Phase.Ready&&BreakFromChallenge){BreakFromChallenge=false;State=Phase.Focus;LastUtc=now;NextBreakReminderSeconds=RunSeconds+Math.Max(1,Data.FocusMinutes)*60;return;}
    if(State==Phase.Idle||String.IsNullOrEmpty(sessionId))sessionId=Guid.NewGuid().ToString("N");
    Current=project;RunId=Guid.NewGuid().ToString("N");RunSeconds=0;IsChallenge=project.Challenge;GoalMinutes=IsChallenge?project.ChallengeMinutes:(project.PomodoroMinutes>0?project.PomodoroMinutes:Data.FocusMinutes);ChallengeBaseMinutes=GoalMinutes;OvertimeSeconds=0;OvertimeStartRunSeconds=0;ChallengeShiftSeconds=0;LastUtc=now;State=Phase.Focus;ReminderSent=false;NextReminderSeconds=IsChallenge?GoalMinutes*60:InitialStageSeconds();NextBreakReminderSeconds=Math.Max(1,Data.FocusMinutes)*60;LastAward=0;OvertimeRequests=0;ChallengeAtDeadline=false;
-   Plan=project.Stages.ToList();stageIndex=Plan.FindIndex(s=>!s.Done);if(stageIndex<0)stageIndex=Plan.Count;Reached.Clear();ChallengeStartOffsetSeconds=0;if(IsChallenge&&stageIndex<Plan.Count){var stage=Plan[stageIndex];ChallengeStartOffsetSeconds=Plan.Take(stageIndex).Sum(s=>TaskSupport.StageSeconds(project,s,Data));double used=Data.Records.Where(r=>r.ProjectId==project.Id&&r.StageId==stage.Id).Sum(r=>r.Seconds);ChallengeStartOffsetSeconds+=Math.Min(TaskSupport.StageSeconds(project,stage,Data),Math.Max(0,used));}
+   Log("signal","start",IsChallenge?"challenge":"pomodoro");Plan=project.Stages.ToList();stageIndex=Plan.FindIndex(s=>!s.Done);if(stageIndex<0)stageIndex=Plan.Count;Reached.Clear();ChallengeStartOffsetSeconds=0;if(IsChallenge&&stageIndex<Plan.Count){var stage=Plan[stageIndex];ChallengeStartOffsetSeconds=Plan.Take(stageIndex).Sum(s=>TaskSupport.StageSeconds(project,s,Data));double used=Data.Records.Where(r=>r.ProjectId==project.Id&&r.StageId==stage.Id).Sum(r=>r.Seconds);ChallengeStartOffsetSeconds+=Math.Min(TaskSupport.StageSeconds(project,stage,Data),Math.Max(0,used));}
   }
   public string Tick(DateTime now) {
    if(State==Phase.Focus) {
     double seconds=(now-LastUtc).TotalSeconds;
-    if(seconds>120) { State=Phase.Paused;LastUtc=now;return "interrupted"; }
+    if(seconds>120) { State=Phase.Paused;LastUtc=now;Log("signal","interrupted");return "interrupted"; }
     DateTime countedUntil=now;
     if(!IsChallenge&&!ReminderSent&&seconds>Math.Max(0,NextReminderSeconds-RunSeconds)){seconds=Math.Max(0,NextReminderSeconds-RunSeconds);countedUntil=LastUtc.AddSeconds(seconds);}
     double limit=IsChallenge&&InOvertime?OvertimeStartRunSeconds+OvertimeSeconds:ChallengeBaseMinutes*60+ChallengeShiftSeconds-ChallengeStartOffsetSeconds;if(IsChallenge&&seconds>Math.Max(0,limit-RunSeconds)){seconds=Math.Max(0,limit-RunSeconds);countedUntil=LastUtc.AddTicks((long)Math.Round(seconds*TimeSpan.TicksPerSecond));}
@@ -205,7 +219,7 @@ namespace LittleFocus {
     if(IsChallenge) {
      double logical=ChallengeStartOffsetSeconds+RunSeconds;Reached.Clear();if(!InOvertime){while(stageIndex<Plan.Count){double boundary=Plan.Take(stageIndex+1).Sum(s=>TaskSupport.StageSeconds(Current,s,Data))+ChallengeShiftSeconds;if(logical<boundary)break;Reached.Add(Plan[stageIndex++]);}}
      if(RunSeconds>=limit){if(InOvertime)CommitOvertime();ChallengeAtDeadline=true;State=Phase.Paused;return "challenge-end";}
-     if(Reached.Count>0){State=Phase.Paused;return "stage";}
+     if(Reached.Count>0){Log("signal","stage",Reached[Reached.Count-1].Title);State=Phase.Paused;return "stage";}
      if(RunSeconds>=NextBreakReminderSeconds){State=Phase.Paused;return "challenge-break";}return null;
     }
     if(!ReminderSent && RunSeconds>=NextReminderSeconds) { ReminderSent=true;State=Phase.Paused;return "due"; }
@@ -227,8 +241,8 @@ namespace LittleFocus {
     last.Seconds+=(stop-start).TotalSeconds;last.EndUtc=stop;last.UpdatedUtc=DateTime.UtcNow;start=stop;
    }
   }
-  public string Pause(DateTime now) { string evt=Tick(now);if(State==Phase.Focus)State=Phase.Paused;return evt; }
-  public void Resume(DateTime now) { if(State!=Phase.Paused)return;LastUtc=now;State=Phase.Focus; }
+  public string Pause(DateTime now) { string evt=Tick(now);if(State==Phase.Focus){State=Phase.Paused;Log("signal","pause");}return evt; }
+  public void Resume(DateTime now) { if(State!=Phase.Paused)return;LastUtc=now;State=Phase.Focus;Log("signal","resume"); }
   public void Snooze() { NextReminderSeconds=RunSeconds+300;ReminderSent=false; }
   public double ChallengeTotalRemaining(){double end=InOvertime?OvertimeStartRunSeconds+OvertimeSeconds:ChallengeBaseMinutes*60+ChallengeShiftSeconds-ChallengeStartOffsetSeconds;return Math.Max(0,end-RunSeconds);}
   public Stage CurrentStage(){return Current==null?null:Current.Stages.FirstOrDefault(s=>!s.Done);}
@@ -236,7 +250,7 @@ namespace LittleFocus {
   public double StageRemaining(){if(!IsChallenge)return Math.Max(0,NextReminderSeconds-RunSeconds);if(InOvertime)return Math.Max(0,OvertimeStartRunSeconds+OvertimeSeconds-RunSeconds);var stage=CurrentStage();if(stage==null)return ChallengeTotalRemaining();int i=Current.Stages.IndexOf(stage);double end=Current.Stages.Take(i+1).Sum(s=>TaskSupport.StageSeconds(Current,s,Data))+ChallengeShiftSeconds-ChallengeStartOffsetSeconds;return Math.Max(0,end-RunSeconds);}
   public void RefreshStageDeadline(){if(IsChallenge||Current==null)return;ReminderSent=false;NextReminderSeconds=RunSeconds+InitialStageSeconds();}
   public double PlannedStageRemaining(Stage stage){if(!IsChallenge||stage==null)return 0;if(InOvertime)return StageRemaining();int i=Current.Stages.IndexOf(stage);if(i<0)return 0;return Math.Max(0,Current.Stages.Take(i+1).Sum(s=>TaskSupport.StageSeconds(Current,s,Data))+ChallengeShiftSeconds-ChallengeStartOffsetSeconds-RunSeconds);}
-  public bool AddChallengeTime(int minutes){if(!IsChallenge||minutes<1||CurrentStage()==null||CurrentStage().Done)return false;OvertimeRequests++;OvertimeStartRunSeconds=RunSeconds;OvertimeSeconds=minutes*60;ChallengeAtDeadline=false;LastUtc=DateTime.UtcNow;return true;}
+  public bool AddChallengeTime(int minutes){if(!IsChallenge||minutes<1||CurrentStage()==null||CurrentStage().Done)return false;OvertimeRequests++;OvertimeStartRunSeconds=RunSeconds;OvertimeSeconds=minutes*60;ChallengeAtDeadline=false;LastUtc=DateTime.UtcNow;Log("signal","overtime",minutes+" 分钟");return true;}
   void CommitOvertime(){if(!InOvertime)return;ChallengeShiftSeconds+=Math.Max(0,Math.Min(OvertimeSeconds,RunSeconds-OvertimeStartRunSeconds));OvertimeSeconds=0;GoalMinutes=(int)Math.Ceiling((ChallengeBaseMinutes*60+ChallengeShiftSeconds)/60.0);}
   public void CompleteOvertimeStage(){CommitOvertime();ChallengeAtDeadline=false;}
   public void FinishChallenge(string outcome){if(!IsChallenge)return;Finish(outcome);State=Phase.Idle;ChallengeAtDeadline=false;}
@@ -250,17 +264,115 @@ namespace LittleFocus {
   public bool EndBreakEarly(DateTime now){if(State!=Phase.Break)return false;if(BreakFromChallenge){BreakFromChallenge=false;State=Phase.Focus;LastUtc=now;NextBreakReminderSeconds=RunSeconds+Math.Max(1,Data.FocusMinutes)*60;return true;}State=Phase.Ready;Start(Current,now);return true;}
   public bool BeginBreak(DateTime now) {
    if(State!=Phase.Focus && State!=Phase.Paused)return false;
-   Tick(now);if(IsChallenge){BreakFromChallenge=true;State=Phase.Break;BreakUntil=now.AddMinutes(5);return true;}Finish("进入休息");State=Phase.Break;BreakUntil=now.AddMinutes(5);return true;
+   Tick(now);Log("signal","break",IsChallenge?"挑战中途":"番茄钟");if(IsChallenge){BreakFromChallenge=true;State=Phase.Break;BreakUntil=now.AddMinutes(5);return true;}Finish("进入休息");State=Phase.Break;BreakUntil=now.AddMinutes(5);return true;
   }
   public void SkipChallengeBreak(DateTime now){if(!IsChallenge||State!=Phase.Paused)return;NextBreakReminderSeconds=RunSeconds+Math.Max(1,Data.FocusMinutes)*60;Resume(now);}
   public int Stop(DateTime now,string outcome) {
    if(State==Phase.Focus || State==Phase.Paused) { var evt=Tick(now);if(evt!="challenge-end")Finish(outcome); }
    else if(BreakFromChallenge&&(State==Phase.Break||State==Phase.Ready)){Finish(outcome);BreakFromChallenge=false;}
    else LastAward=0;
-   State=Phase.Idle;return LastAward;
+   State=Phase.Idle;Log("signal","stop",outcome);return LastAward;
   }
   public double BreakSeconds(DateTime now) {return Math.Max(0,(BreakUntil-now).TotalSeconds);}
-  public void Complete(Project project,DateTime now){if(project==null)return;if(State!=Phase.Idle&&Current!=null&&Current.Id==project.Id)Stop(now,"任务完成");project.Completed=true;project.Enabled=false;project.UpdatedUtc=now;}
+  public void Complete(Project project,DateTime now){if(project==null)return;if(State!=Phase.Idle&&Current!=null&&Current.Id==project.Id)Stop(now,"任务完成");project.Completed=true;project.Enabled=false;project.UpdatedUtc=now;Log("signal","complete",project.Name);}
   public static string Duration(double seconds) { var s=(long)Math.Floor(Math.Max(0,seconds));return String.Format("{0:00}:{1:00}:{2:00}",s/3600,s/60%60,s%60); }
+ }
+ // One uninterrupted stretch of focusing: a "start" event closed by stop /
+ // interruption / break. Duration comes from the time records (which already
+ // exclude paused time), so it matches what the history tab shows.
+ public class FocusSegment { public DateTime StartUtc,EndUtc;public double Seconds;public string EndName="",ProjectName=""; }
+ public class LogSummary { public int Starts,Pauses,Resumes,Interruptions,Completions,SegmentCount;public double TotalSeconds,LongestSeconds,AverageSeconds;public string Headline="",Detail=""; }
+ public static class RuntimeLog {
+  public const int Keep=2000;
+  public static string NameText(string name){
+   switch(name){
+    case "start":return "开始计时";case "pause":return "暂停";case "resume":return "继续";
+    case "stop":return "结束计时";case "interrupted":return "长时间无响应";case "break":return "进入休息";
+    case "stage":return "完成一个阶段";case "overtime":return "申请加时";case "complete":return "完成任务";
+    default:return String.IsNullOrEmpty(name)?"其他":name;
+   }
+  }
+  public static string StateText(string state){
+   switch(state){
+    case "Idle":return "空闲";case "Focus":return "专注中";case "Paused":return "已暂停";
+    case "Break":return "休息中";case "Ready":return "等待开始";default:return String.IsNullOrEmpty(state)?"":state;
+   }
+  }
+  static List<RuntimeEvent> Safe(AppData data){if(data.RuntimeEvents==null)data.RuntimeEvents=new List<RuntimeEvent>();return data.RuntimeEvents;}
+  public static List<RuntimeEvent> Ordered(AppData data){return Safe(data).OrderBy(e=>e.AtUtc).ToList();}
+  public static string ProjectName(AppData data,string id){
+   if(String.IsNullOrEmpty(id))return "";
+   var projects=data.Projects??new List<Project>();
+   var p=projects.FirstOrDefault(x=>x.Id==id);
+   return p==null?"（已删除的任务）":p.Name;
+  }
+  public static List<FocusSegment> Segments(AppData data){
+   var result=new List<FocusSegment>();
+   var byRun=new Dictionary<string,double>();
+   foreach(var r in data.Records??new List<TimeRecord>()){
+    if(String.IsNullOrEmpty(r.RunId))continue;
+    if(!byRun.ContainsKey(r.RunId))byRun[r.RunId]=0;
+    byRun[r.RunId]+=r.Seconds;
+   }
+   RuntimeEvent open=null;
+   foreach(var e in Ordered(data)){
+    if(e.Name=="start"){ if(open!=null)result.Add(Make(data,open,e,byRun)); open=e; }
+    else if(open!=null&&(e.Name=="stop"||e.Name=="interrupted"||e.Name=="break")){ result.Add(Make(data,open,e,byRun)); open=null; }
+   }
+   return result;
+  }
+  static FocusSegment Make(AppData data,RuntimeEvent open,RuntimeEvent close,Dictionary<string,double> byRun){
+   double seconds=byRun.ContainsKey(open.RunId)?byRun[open.RunId]:Math.Max(0,(close.AtUtc-open.AtUtc).TotalSeconds);
+   return new FocusSegment{StartUtc=open.AtUtc,EndUtc=close.AtUtc,Seconds=seconds,EndName=close.Name,ProjectName=ProjectName(data,open.ProjectId)};
+  }
+  public static LogSummary Summary(AppData data){
+   var s=new LogSummary();
+   DateTime today=DateTime.Now.Date;
+   var events=Ordered(data).Where(e=>e.AtUtc.ToLocalTime().Date==today).ToList();
+   s.Starts=events.Count(e=>e.Name=="start");
+   s.Pauses=events.Count(e=>e.Name=="pause");
+   s.Resumes=events.Count(e=>e.Name=="resume");
+   s.Interruptions=events.Count(e=>e.Name=="interrupted");
+   s.Completions=events.Count(e=>e.Name=="complete");
+   var segs=Segments(data).Where(x=>x.StartUtc.ToLocalTime().Date==today).ToList();
+   s.SegmentCount=segs.Count;
+   s.TotalSeconds=segs.Count==0?0:segs.Sum(x=>x.Seconds);
+   s.LongestSeconds=segs.Count==0?0:segs.Max(x=>x.Seconds);
+   s.AverageSeconds=segs.Count==0?0:segs.Average(x=>x.Seconds);
+   s.Headline=segs.Count==0?"今天还没有开始计时。":"今天启动了 "+s.Starts+" 次，累计专注 "+Clock(s.TotalSeconds)+"，最长一段 "+Clock(s.LongestSeconds)+"。";
+   var parts=new List<string>();
+   if(s.Interruptions>0)parts.Add("长时间无响应 "+s.Interruptions+" 次");
+   if(s.Pauses>0)parts.Add("暂停 "+s.Pauses+" 次");
+   if(s.Completions>0)parts.Add("完成任务 "+s.Completions+" 个");
+   s.Detail=parts.Count==0?"":String.Join(" · ",parts.ToArray())+"。";
+   if(segs.Count==0)s.Detail="选一个任务，先做 5 分钟也算数。";
+   else if(s.Interruptions>0)s.Detail+="断了又重新开始，本身就是在推进。";
+   return s;
+  }
+  public static string Clock(double seconds){
+   var v=(long)Math.Floor(Math.Max(0,seconds));
+   if(v>=3600)return String.Format("{0} 小时 {1} 分钟",v/3600,v/60%60);
+   if(v>=60)return String.Format("{0} 分钟",v/60);
+   return String.Format("{0} 秒",v);
+  }
+  public static string Csv(AppData data){
+   var text=new StringBuilder("时间,事件,任务,状态,专注时长,说明\n");
+   var segs=Segments(data);
+   foreach(var e in Ordered(data)){
+    var seg=segs.FirstOrDefault(x=>x.EndUtc==e.AtUtc&&x.EndName==e.Name);
+    text.Append(Cell(e.AtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"))).Append(",")
+        .Append(Cell(NameText(e.Name))).Append(",")
+        .Append(Cell(ProjectName(data,e.ProjectId))).Append(",")
+        .Append(Cell(StateText(e.State))).Append(",")
+        .Append(Cell(seg==null?"":FocusEngine.Duration(seg.Seconds))).Append(",")
+        .Append(Cell(e.Detail)).Append("\n");
+   }
+   return text.ToString();
+  }
+  static string Cell(string value){
+   var v=(value??"").Replace("\r"," ").Replace("\n"," ");
+   return v.IndexOfAny(new char[]{',','"','\\'})<0?v:"\""+v.Replace("\"","\"\"")+"\"";
+  }
+  public static void Clear(AppData data){Safe(data).Clear();}
  }
 }

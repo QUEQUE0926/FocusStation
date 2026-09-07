@@ -1,7 +1,38 @@
-# 修订记录（CHANGELOG）
+﻿# 修订记录（CHANGELOG）
 
 > 对应手册 3.3：文档末尾保留按日期的修订记录，写清每次逻辑定型的原因（哪些方案被实测推翻）。
 > 新条目写在最上面。
+
+---
+
+## 2026-09-08 · 运行日志（把只写不读的事件记录接完）
+
+- **问题**：dev 上的 `a151d2d` 混进了一套 `RuntimeEvent` 事件记录，`FocusEngine` 在开始/暂停/继续/结束/无响应时写入 `data.xml`，但没有任何界面读取它 —— 纯负担：文件只增不减，用户看不到，出了问题也无从查起。
+- **改动**：
+  - `src/Model.cs`：补齐埋点（新增 完成阶段 / 申请加时 / 进入休息 / 完成任务）；新增 `RuntimeLog` 类，提供事件中文名、专注段计算、今日小结、CSV 导出、清空。
+  - `src/Dialogs.cs`：新增 `RuntimeLogDialog` —— 顶部今日小结、范围筛选（今天 / 最近 7 天 / 全部）、事件表格、导出 CSV、清空。
+  - `src/MainForm.cs`：设置页「数据文件夹」旁新增「运行日志」按钮。
+  - `src/Tests.cs`：新增 `RuntimeLogChecks`（23 条断言），覆盖埋点、段落时长、小结统计、CSV、上限裁剪。
+- **设计取舍**：
+  - 段落时长取自计时记录求和，而不是事件时间相减 —— 保证与「历史」页的数字一致，且自动排除暂停时间。
+  - 未知事件名原样显示而非显示「其他」—— 以后新增埋点不会退化成无意义标签。
+  - 清空日志需二次确认，并明确说明不影响项目与计时记录；上限仍为 2000 条，超出丢弃最旧的。
+- **验证**：`test.ps1` 通过（160 断言 + UI 单测）；dev 构建产物内含「运行日志」「今天启动了」。
+- **用途**：回答「为什么老启动不了」—— 今天启动了几次、累计多久、最长一段多长、断了多少次，一眼可见。
+
+---
+
+## 2026-09-08 · dev 数据隔离（数据目录与同步配置分离）
+
+- **问题**：`src/Program.cs` 把数据目录写死为 `%LocalAppData%\LittleFocusDesktop`，而 `build.ps1` 只做了 exe 的分支命名。结果是 dev 版与正式版读写同一份 `data.xml` 和 `sync.xml`；在 dev 上测试 WebDAV 同步，会通过 `DataMerge` 把测试记录双向合并进正式数据。
+- **改动**：
+  - `scripts/build.ps1`：非 main 分支编译时注入 `/define:DEV`（与已有的分支命名同源判定，读 `.git/HEAD`，不依赖 git CLI）。
+  - `src/Program.cs`：`#if UI_TEST` > `#elif DEV` > 默认正式目录；dev 走 `%LocalAppData%\LittleFocusDesktop-dev`，`sync.xml` 随目录一并隔离。
+  - `src/MainForm.cs` / `src/MiniTimer.cs`：窗口标题、托盘提示、迷你计时条改用 `Program.AppName`，dev 版显示 `专注小站 (dev)`。
+- **原因**：exe 分开但数据不分，等于「两个门牌、一个房间」——测试动作会直接落在真实数据上。
+- **附带清理**：删除临时脚本 `_fix_garbled.py`。该脚本针对一个并不存在的「乱码文件名」：已扫描全仓库 6 个提交、所有分支、索引与磁盘，非 UTF-8 路径数为 0；git 显示的 `\345\210\206` 是 `core.quotepath` 的八进制转义，属显示转义而非存储乱码。
+- **验证**：dev 构建 `FocusStation-v2.0.10-dev.exe` 内含 `LittleFocusDesktop-dev` 与 `专注小站 (dev)`；以 main 分支配置构建仍产出 `FocusStation-v2.0.10.exe`，数据目录保持正式路径，未受影响。
+- **注意**：dev 版首次启动数据为空，不会自动复制正式数据；需要带真实数据复现时手动复制 `data.xml` / `sync.xml` 到 dev 目录。
 
 ---
 
