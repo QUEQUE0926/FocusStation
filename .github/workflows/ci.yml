@@ -1,0 +1,37 @@
+name: CI
+
+# 触发：推送 dev（开发/测试环境）或向 main 提 PR（生产合并前）
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [main]
+
+# 手册 2.2 并发防护：共享 concurrency group，取消在途=false（不丢本次运行）
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # 手册 2.3 测试消息打标体系：非生产分支自动注入测试标记；dev / PR 均视为测试环境
+  PUSH_TEST: "1"
+  APP_ENV: "test"
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout（完整历史）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 手册 2.4：状态变化走版本历史，可回放、可回滚
+
+      - name: Build (scripts/build.ps1)
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/build.ps1
+
+      - name: Test (scripts/test.ps1)
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/test.ps1
+        # 手册 1.6：测试以退出码判定（逻辑 137 assertions + UI 渲染 + 界面单测），不写 mock
+        # 手册 1.5：测试隔离目录为 artifacts/work，与用户数据(%LocalAppData%\LittleFocusDesktop)无关

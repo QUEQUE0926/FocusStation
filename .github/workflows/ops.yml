@@ -1,0 +1,53 @@
+name: Ops (Manual)
+
+# 手册 3.4 运维入口：手动校准 / 补信号 / 测试推送的 workflow 入口（带参数校验）
+# 手册 2.3 生产守卫：本 workflow 禁止在 main 上手动触发
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '运行内容：build | test | build+test'
+        required: true
+        default: 'build+test'
+      note:
+        description: '可选：本次运维操作的说明（仅记录，不执行）'
+        required: false
+        default: ''
+
+jobs:
+  ops:
+    runs-on: windows-latest
+    steps:
+      - name: 生产分支守卫
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_name }}" -eq "main") {
+            Write-Error "生产分支守卫：ops 不允许在 main 上手动触发。请在 dev 分支运行。"
+            exit 1
+          }
+          Write-Host "ops target branch: ${{ github.ref_name }} (test env)"
+
+      - name: 参数校验
+        shell: pwsh
+        run: |
+          $m = "${{ inputs.mode }}".ToLower()
+          if ($m -notin @('build','test','build+test')) {
+            Write-Error "mode 必须是 build / test / build+test，收到: $m"
+            exit 1
+          }
+          Write-Host "mode=$m validated; note=${{ inputs.note }}"
+
+      - name: Checkout（完整历史）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run
+        shell: pwsh
+        env:
+          PUSH_TEST: "1"
+          APP_ENV: "test"
+        run: |
+          $m = "${{ inputs.mode }}".ToLower()
+          if ($m -like "*build*") { pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/build.ps1 }
+          if ($m -like "*test*")  { pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/test.ps1 }

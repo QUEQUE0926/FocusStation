@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-09-08 · 分支治理补齐（main/dev 双分支模型）
+
+- **新增分支治理资产**（对应手册 2.2 / 2.3 / 2.4 / 3.4）：
+  - `.github/workflows/ci.yml`：push dev 与 PR main 时自动 `build.ps1` → `test.ps1`；`concurrency` group 设 `cancel-in-progress: false`，`checkout` 用 `fetch-depth: 0` 保留完整历史；非生产环境自动注入 `PUSH_TEST=1`。
+  - `.github/workflows/ops.yml`：`workflow_dispatch` 手动运维入口（`mode: build/test/build+test`），带参数校验，且守卫 `main` 禁止手动触发（生产守卫）。
+  - `.github/PULL_REQUEST_TEMPLATE.md`：合并前检查清单，逐项对应手册（构建/测试/rebase/文档互锁/失效行为/回归用例/兼容旧数据）。
+  - `docs/分支与发布流程.md`：分支模型、环境标记、CI/运维入口、合并流程、rebase 纪律、本地代理/凭据约定。
+- **原因**：仓库已有 main+dev 分支，但缺"存在分支时应有的验证与运维入口"。本次按手册补齐，使 dev 的任何改动在合并前都有自动构建+测试把关，且生产分支有手动触发守卫。
+- **未做（待实测）**：UI 测试在 CI 无显示器 runner 上的可行性待验证；若失败再据手册调整（如改为非阻塞或自托管 runner）。
+
+---
+
 ## 2026-09-08 · 治理资产补齐 + 目录结构化（main 基线）
 
 - **目录整理**：源码归入 `src/`，策略文档归入 `policies/`，脚本归入 `scripts/`，治理文档归入 `docs/`；同步更新 `build.ps1`/`test.ps1` 的资源与源码路径。`app.manifest` 保留在仓库根。
