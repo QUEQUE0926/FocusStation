@@ -5,6 +5,16 @@ using System.Linq;
 using System.Xml.Serialization;
 
 namespace LittleFocus {
+ // App display name. Lives in Model.cs (not Program.cs) so every compile
+ // target -- app, UI_TEST build and the UiTests harness (which has its own
+ // Main and omits Program.cs) -- can reference it.
+ public static class Brand {
+#if DEV
+  public const string AppName="专注小站 (dev)";
+#else
+  public const string AppName="专注小站";
+#endif
+ }
  public class Project {
   public string Id = Guid.NewGuid().ToString("N");
   public string Name = "";

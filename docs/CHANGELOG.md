@@ -1,7 +1,21 @@
-# 修订记录（CHANGELOG）
+﻿# 修订记录（CHANGELOG）
 
 > 对应手册 3.3：文档末尾保留按日期的修订记录，写清每次逻辑定型的原因（哪些方案被实测推翻）。
 > 新条目写在最上面。
+
+---
+
+## 2026-09-08 · dev 数据隔离（数据目录与同步配置分离）
+
+- **问题**：`src/Program.cs` 把数据目录写死为 `%LocalAppData%\LittleFocusDesktop`，而 `build.ps1` 只做了 exe 的分支命名。结果是 dev 版与正式版读写同一份 `data.xml` 和 `sync.xml`；在 dev 上测试 WebDAV 同步，会通过 `DataMerge` 把测试记录双向合并进正式数据。
+- **改动**：
+  - `scripts/build.ps1`：非 main 分支编译时注入 `/define:DEV`（与已有的分支命名同源判定，读 `.git/HEAD`，不依赖 git CLI）。
+  - `src/Program.cs`：`#if UI_TEST` > `#elif DEV` > 默认正式目录；dev 走 `%LocalAppData%\LittleFocusDesktop-dev`，`sync.xml` 随目录一并隔离。
+  - `src/MainForm.cs` / `src/MiniTimer.cs`：窗口标题、托盘提示、迷你计时条改用 `Program.AppName`，dev 版显示 `专注小站 (dev)`。
+- **原因**：exe 分开但数据不分，等于「两个门牌、一个房间」——测试动作会直接落在真实数据上。
+- **附带清理**：删除临时脚本 `_fix_garbled.py`。该脚本针对一个并不存在的「乱码文件名」：已扫描全仓库 6 个提交、所有分支、索引与磁盘，非 UTF-8 路径数为 0；git 显示的 `\345\210\206` 是 `core.quotepath` 的八进制转义，属显示转义而非存储乱码。
+- **验证**：dev 构建 `FocusStation-v2.0.10-dev.exe` 内含 `LittleFocusDesktop-dev` 与 `专注小站 (dev)`；以 main 分支配置构建仍产出 `FocusStation-v2.0.10.exe`，数据目录保持正式路径，未受影响。
+- **注意**：dev 版首次启动数据为空，不会自动复制正式数据；需要带真实数据复现时手动复制 `data.xml` / `sync.xml` 到 dev 目录。
 
 ---
 
