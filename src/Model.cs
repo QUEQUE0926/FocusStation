@@ -73,6 +73,7 @@ namespace LittleFocus {
   public string Id=Guid.NewGuid().ToString("N"),ProjectId="",ProjectName="",Kind="why",Topic="",Title="",Body="",English="",Explanation="",Chinese="",Phonetics="",SourceUrl="";
   public DateTime AtUtc=DateTime.UtcNow; public int CharCount; public bool Favorite;
  }
+ public class RuntimeEvent { public string Id=Guid.NewGuid().ToString("N"); public DateTime AtUtc=DateTime.UtcNow; public string Kind="signal",Name="",RunId="",ProjectId="",State="",Detail=""; }
  public class AppData {
   public int MiniDimPercent=25;public bool MiniAiRest=false;public int RestLineSeconds=20;public int AiRestClearDays=7;public DateTime AiRestGeneratedUtc;public string MiniRestLines="( ˘ω˘ )\n慢一点也可以\n现在不用完成任何事\n离开屏幕，松松肩\n喝口水，给自己留白\n(๑•̀ㅂ•́)و✧";public List<string> AiRestLines=new List<string>();public bool LowStimulus=false;public string LastProjectId="";
   public bool AutoResumeSuggestions=false;
@@ -98,6 +99,7 @@ namespace LittleFocus {
   public List<ChallengeAdjustment> ChallengeAdjustments=new List<ChallengeAdjustment>();
   public List<FreshContent> FreshContents=new List<FreshContent>();
   public List<DistractionRecord> DistractionLog=new List<DistractionRecord>();
+  public List<RuntimeEvent> RuntimeEvents=new List<RuntimeEvent>();
  }
  public static class AiDefaults {
   public const string Persona="你是一个懂得 ADHD 启动与恢复困难的任务伙伴。以 i-have-adhd 为主要行动和表达规则，以 adhd-friendly-skill 补充去羞耻与恢复支持。像一个了解节奏的可靠同伴，说话直接但不冷淡，有具体依据，不用空泛的夸赞。不扮演医生，不推断我的情绪或诊断。默认称呼我为‘你’，不擅自使用亲昵称呼。人格服务于我当下的状态：专注时不岔题，休息时不催工作，收尾时允许结束。";
@@ -139,7 +141,7 @@ namespace LittleFocus {
    AppData data;
    using(var input=new StringReader(text))using(var reader=System.Xml.XmlReader.Create(input,settings)) data=(AppData)new XmlSerializer(typeof(AppData)).Deserialize(reader);
    if(data==null || data.Version!=1 || data.Projects==null || data.Ideas==null || data.Records==null) throw new InvalidDataException("不支持的数据格式");
-   if(data.ChallengeAdjustments==null)data.ChallengeAdjustments=new List<ChallengeAdjustment>();if(data.FreshContents==null)data.FreshContents=new List<FreshContent>();if(data.DistractionLog==null)data.DistractionLog=new List<DistractionRecord>();
+   if(data.ChallengeAdjustments==null)data.ChallengeAdjustments=new List<ChallengeAdjustment>();if(data.FreshContents==null)data.FreshContents=new List<FreshContent>();if(data.DistractionLog==null)data.DistractionLog=new List<DistractionRecord>();if(data.RuntimeEvents==null)data.RuntimeEvents=new List<RuntimeEvent>();data.RuntimeEvents=data.RuntimeEvents.Where(x=>x!=null&&!String.IsNullOrWhiteSpace(x.Kind)&&!String.IsNullOrWhiteSpace(x.Name)).OrderBy(x=>x.AtUtc).Take(2000).ToList();
    AiDefaults.Migrate(data);
    data.DefaultProjectMinutes=Math.Max(1,Math.Min(720,data.DefaultProjectMinutes));
    data.FocusMinutes=Math.Max(1,Math.Min(240,data.FocusMinutes));
@@ -182,7 +184,8 @@ namespace LittleFocus {
   public List<Stage> Plan=new List<Stage>();
   public List<Stage> Reached=new List<Stage>();
   int stageIndex;
-  public FocusEngine(AppData data) { Data=data; foreach(var r in Data.Records.Where(r=>r.Outcome=="计时中")) r.Outcome="意外退出（已保存部分）"; }
+  public FocusEngine(AppData data) { Data=data; if(Data.RuntimeEvents==null)Data.RuntimeEvents=new List<RuntimeEvent>(); foreach(var r in Data.Records.Where(r=>r.Outcome=="计时中")) r.Outcome="意外退出（已保存部分）"; }
+  void Log(string kind,string name,string detail="") { Data.RuntimeEvents.Add(new RuntimeEvent{AtUtc=DateTime.UtcNow,Kind=kind,Name=name,RunId=RunId,ProjectId=Current==null?"":Current.Id,State=State.ToString(),Detail=detail??""});if(Data.RuntimeEvents.Count>2000)Data.RuntimeEvents.RemoveAt(0); }
   string sessionId="";
   public double SessionSeconds{get{return String.IsNullOrEmpty(sessionId)?0:Data.Records.Where(r=>r.SessionId==sessionId).Sum(r=>r.Seconds);}}
   public void Start(Project project,DateTime now) {
@@ -191,12 +194,12 @@ namespace LittleFocus {
    if(State==Phase.Ready&&BreakFromChallenge){BreakFromChallenge=false;State=Phase.Focus;LastUtc=now;NextBreakReminderSeconds=RunSeconds+Math.Max(1,Data.FocusMinutes)*60;return;}
    if(State==Phase.Idle||String.IsNullOrEmpty(sessionId))sessionId=Guid.NewGuid().ToString("N");
    Current=project;RunId=Guid.NewGuid().ToString("N");RunSeconds=0;IsChallenge=project.Challenge;GoalMinutes=IsChallenge?project.ChallengeMinutes:(project.PomodoroMinutes>0?project.PomodoroMinutes:Data.FocusMinutes);ChallengeBaseMinutes=GoalMinutes;OvertimeSeconds=0;OvertimeStartRunSeconds=0;ChallengeShiftSeconds=0;LastUtc=now;State=Phase.Focus;ReminderSent=false;NextReminderSeconds=IsChallenge?GoalMinutes*60:InitialStageSeconds();NextBreakReminderSeconds=Math.Max(1,Data.FocusMinutes)*60;LastAward=0;OvertimeRequests=0;ChallengeAtDeadline=false;
-   Plan=project.Stages.ToList();stageIndex=Plan.FindIndex(s=>!s.Done);if(stageIndex<0)stageIndex=Plan.Count;Reached.Clear();ChallengeStartOffsetSeconds=0;if(IsChallenge&&stageIndex<Plan.Count){var stage=Plan[stageIndex];ChallengeStartOffsetSeconds=Plan.Take(stageIndex).Sum(s=>TaskSupport.StageSeconds(project,s,Data));double used=Data.Records.Where(r=>r.ProjectId==project.Id&&r.StageId==stage.Id).Sum(r=>r.Seconds);ChallengeStartOffsetSeconds+=Math.Min(TaskSupport.StageSeconds(project,stage,Data),Math.Max(0,used));}
+   Log("signal","start",IsChallenge?"challenge":"pomodoro");Plan=project.Stages.ToList();stageIndex=Plan.FindIndex(s=>!s.Done);if(stageIndex<0)stageIndex=Plan.Count;Reached.Clear();ChallengeStartOffsetSeconds=0;if(IsChallenge&&stageIndex<Plan.Count){var stage=Plan[stageIndex];ChallengeStartOffsetSeconds=Plan.Take(stageIndex).Sum(s=>TaskSupport.StageSeconds(project,s,Data));double used=Data.Records.Where(r=>r.ProjectId==project.Id&&r.StageId==stage.Id).Sum(r=>r.Seconds);ChallengeStartOffsetSeconds+=Math.Min(TaskSupport.StageSeconds(project,stage,Data),Math.Max(0,used));}
   }
   public string Tick(DateTime now) {
    if(State==Phase.Focus) {
     double seconds=(now-LastUtc).TotalSeconds;
-    if(seconds>120) { State=Phase.Paused;LastUtc=now;return "interrupted"; }
+    if(seconds>120) { State=Phase.Paused;LastUtc=now;Log("signal","interrupted");return "interrupted"; }
     DateTime countedUntil=now;
     if(!IsChallenge&&!ReminderSent&&seconds>Math.Max(0,NextReminderSeconds-RunSeconds)){seconds=Math.Max(0,NextReminderSeconds-RunSeconds);countedUntil=LastUtc.AddSeconds(seconds);}
     double limit=IsChallenge&&InOvertime?OvertimeStartRunSeconds+OvertimeSeconds:ChallengeBaseMinutes*60+ChallengeShiftSeconds-ChallengeStartOffsetSeconds;if(IsChallenge&&seconds>Math.Max(0,limit-RunSeconds)){seconds=Math.Max(0,limit-RunSeconds);countedUntil=LastUtc.AddTicks((long)Math.Round(seconds*TimeSpan.TicksPerSecond));}
@@ -227,8 +230,8 @@ namespace LittleFocus {
     last.Seconds+=(stop-start).TotalSeconds;last.EndUtc=stop;last.UpdatedUtc=DateTime.UtcNow;start=stop;
    }
   }
-  public string Pause(DateTime now) { string evt=Tick(now);if(State==Phase.Focus)State=Phase.Paused;return evt; }
-  public void Resume(DateTime now) { if(State!=Phase.Paused)return;LastUtc=now;State=Phase.Focus; }
+  public string Pause(DateTime now) { string evt=Tick(now);if(State==Phase.Focus){State=Phase.Paused;Log("signal","pause");}return evt; }
+  public void Resume(DateTime now) { if(State!=Phase.Paused)return;LastUtc=now;State=Phase.Focus;Log("signal","resume"); }
   public void Snooze() { NextReminderSeconds=RunSeconds+300;ReminderSent=false; }
   public double ChallengeTotalRemaining(){double end=InOvertime?OvertimeStartRunSeconds+OvertimeSeconds:ChallengeBaseMinutes*60+ChallengeShiftSeconds-ChallengeStartOffsetSeconds;return Math.Max(0,end-RunSeconds);}
   public Stage CurrentStage(){return Current==null?null:Current.Stages.FirstOrDefault(s=>!s.Done);}
@@ -257,7 +260,7 @@ namespace LittleFocus {
    if(State==Phase.Focus || State==Phase.Paused) { var evt=Tick(now);if(evt!="challenge-end")Finish(outcome); }
    else if(BreakFromChallenge&&(State==Phase.Break||State==Phase.Ready)){Finish(outcome);BreakFromChallenge=false;}
    else LastAward=0;
-   State=Phase.Idle;return LastAward;
+   State=Phase.Idle;Log("signal","stop",outcome);return LastAward;
   }
   public double BreakSeconds(DateTime now) {return Math.Max(0,(BreakUntil-now).TotalSeconds);}
   public void Complete(Project project,DateTime now){if(project==null)return;if(State!=Phase.Idle&&Current!=null&&Current.Id==project.Id)Stop(now,"任务完成");project.Completed=true;project.Enabled=false;project.UpdatedUtc=now;}
