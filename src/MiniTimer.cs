@@ -35,7 +35,7 @@ namespace LittleFocus {
   void CheckHover(){CheckHover(Cursor.Position);}
   public void CheckHover(Point screenPos){if(!locked)return;var p=PointToClient(screenPos);bool inside=ClientRectangle.Contains(p);bool overLock=lockButton.Bounds.Contains(p);if(inside&&!overLock){if(!clickThrough){SetClickThrough(true);clickThrough=true;}FadeTo(0.1);}else if(clickThrough){SetClickThrough(false);clickThrough=false;FadeTo(baseOpacity);}}
   void FadeTo(double target){targetOpacity=target;if(Math.Abs((double)Opacity-target)<0.01)return;fadeTimer.Enabled=false;fadeTimer.Enabled=true;}
-  void FadeTick(){double current=(double)Opacity;double next=current+(targetOpacity-current)*0.28;if(Math.Abs(next-targetOpacity)<0.02){next=targetOpacity;fadeTimer.Enabled=false;}Opacity=next;}
+  void FadeTick(){double current=(double)Opacity;double next=current+(targetOpacity-current)*0.28;if(Math.Abs(next-targetOpacity)<0.02){next=targetOpacity;fadeTimer.Enabled=false;}Opacity=next;SetClickThrough(clickThrough);}
   public void SetLowStimulus(bool value){lowStimulus=value;ConfigureAnimation();ApplyLock();}
   void ArrangeAccent(){int r=14;using(var path=new GraphicsPath()){path.AddArc(0,0,r,r,180,90);path.AddArc(Width-r,0,r,r,270,90);path.AddArc(Width-r,Height-r,r,r,0,90);path.AddArc(0,Height-r,r,r,90,90);path.CloseFigure();var old=Region;Region=new Region(path);if(old!=null)old.Dispose();}}
   void DragStart(object sender,MouseEventArgs e){if(locked||e.Button!=MouseButtons.Left)return;dragging=true;pointer=Cursor.Position;origin=Location;((Control)sender).Capture=true;}
