@@ -1,12 +1,18 @@
-# REVIEW_REQUEST · dev 推送失败：本地代理 127.0.0.1:7890 连不上 — ✅ 已解决（2026-09-08 20:35）
+# REVIEW_REQUEST · dev→main 推送被拒（403）：GCM 令牌无 FocusStation 写权限（2026-09-08 20:35）
 
-- 日期：2026-09-08 19:20
-- 现象：`git push origin dev` 两次失败：`Failed to connect to github.com:443 over proxy 127.0.0.1:7890 — Could not connect to server`。
-- 判断：不是凭据问题（GCM 令牌正常），是代理客户端没在跑或端口变了（历史上有 10137 → 7890 的变化）。请确认代理软件已启动、HTTP 端口是 7890，然后重推即可。
-- 本地状态（19:20 时）：dev 领先 origin/dev 2 个提交（`2b6c615` 之前同步基线 + `6fb2c14` 本次改动），构建与全部冒烟测试通过，无未提交内容。
-- 触发停手规则：推送失败 2 次，停止重试，等待用户确认代理状态。
+- 日期：2026-09-08 20:35
+- 现象：`git push origin main dev`（GCM 凭据）返回 403：`Permission to QUEQUE0926/FocusStation.git denied to QUEQUE0926`。单独推 `dev`、改用 `x-access-token:<令牌>` 直推，均 403；代理已恢复（`git ls-remote` 正常）。
+- 实测验证：取 GCM 中同一枚令牌（93 位）调 GitHub API，`GET /repos/QUEQUE0926/FocusStation` 返回 200 且 `permissions.push=true`，但 `POST .../git/refs`（建 tag＝Contents 写）返回 **403**。即令牌"已授予 Contents:write"却**对 FocusStation 没有有效写权限**——典型是细粒度令牌的 Repository access 列表未包含本仓库（git 智能 HTTP 会严格校验访问列表）。
+- 本地状态：main 已快进合并 dev（HEAD=`8e097af`，领先 origin/main），dev 与 main 冒烟测试均通过（162 断言 + UI 单测）；仅远端推送因令牌权限被阻。
+- 触发停手规则：推送连续失败（main+dev / x-access-token 直推 / API 写 各试 1 次均 403），停止重试，等用户在 GitHub 修正令牌权限后重推。
 
-> **解决（2026-09-08 20:35）**：代理客户端恢复运行（HTTP 端口 7890 可达）。用户确认后执行 dev→main 快进合并，dev 冒烟测试（162 断言 + UI 单测）与 main 生产构建冒烟测试均通过，随后 `git push origin main dev` 成功，远端 main/dev 同步至 `52b9373`。
+> **所需操作（用户）**：GitHub → Settings → Developer settings → Fine-grained tokens → 打开 Windows 凭据库 `git:https://github.com` 对应的令牌，确认 **Repository access** 含 `QUEQUE0926/FocusStation` 且 **Permissions → Contents = Read and write**；保存后本机重推即可。若仍不行，改用"All repositories"范围的细粒度令牌并更新凭据库。
+
+---
+
+# 历史存档 · 19:20 本地代理 127.0.0.1:7890 连不上 — ✅ 已恢复（2026-09-08 20:28）
+
+> 代理客户端恢复运行（HTTP 端口 7890 可达），`git ls-remote` 正常。但推送随即遇到上方 403 权限问题，属不同根因。
 
 ---
 
