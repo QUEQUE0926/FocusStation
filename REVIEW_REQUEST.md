@@ -1,4 +1,14 @@
-# REVIEW_REQUEST · dev 推送被拒（403）— ✅ 已解决（2026-09-08 18:03）
+# REVIEW_REQUEST · dev 推送失败：本地代理 127.0.0.1:7890 连不上（2026-09-08 19:20）
+
+- 日期：2026-09-08 19:20
+- 现象：`git push origin dev` 两次失败：`Failed to connect to github.com:443 over proxy 127.0.0.1:7890 — Could not connect to server`。
+- 判断：不是凭据问题（GCM 令牌正常），是代理客户端没在跑或端口变了（历史上有 10137 → 7890 的变化）。请确认代理软件已启动、HTTP 端口是 7890，然后重推即可。
+- 本地状态：dev 领先 origin/dev 2 个提交（`2b6c615` 之前同步基线 + `6fb2c14` 本次改动），构建与全部冒烟测试通过，无未提交内容。
+- 触发停手规则：推送失败 2 次，停止重试，等待用户确认代理状态。
+
+---
+
+# 历史存档 · dev 推送被拒（403）— ✅ 已解决（2026-09-08 18:03）
 
 > **解决**：用户在凭据管理器把 `git:https://github.com` 的密码更新为新的 ALL 仓库细粒度令牌（Contents/Actions/Workflows/Pages 读写），推送成功（d98cbb3..8740bea dev）。以下为排查过程存档。
 
