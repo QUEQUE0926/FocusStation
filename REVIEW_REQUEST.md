@@ -1,12 +1,11 @@
-# REVIEW_REQUEST · dev→main 推送被拒（403）：GCM 令牌无 FocusStation 写权限（2026-09-08 20:35）
+# REVIEW_REQUEST · dev→main 推送被拒（403）：GCM 令牌无 FocusStation 写权限 — ✅ 已解决（2026-09-08 20:47）
 
-- 日期：2026-09-08 20:35
+- 日期：2026-09-08 20:35（阻塞），2026-09-08 20:47（解决）
 - 现象：`git push origin main dev`（GCM 凭据）返回 403：`Permission to QUEQUE0926/FocusStation.git denied to QUEQUE0926`。单独推 `dev`、改用 `x-access-token:<令牌>` 直推，均 403；代理已恢复（`git ls-remote` 正常）。
 - 实测验证：取 GCM 中同一枚令牌（93 位）调 GitHub API，`GET /repos/QUEQUE0926/FocusStation` 返回 200 且 `permissions.push=true`，但 `POST .../git/refs`（建 tag＝Contents 写）返回 **403**。即令牌"已授予 Contents:write"却**对 FocusStation 没有有效写权限**——典型是细粒度令牌的 Repository access 列表未包含本仓库（git 智能 HTTP 会严格校验访问列表）。
-- 本地状态：main 已快进合并 dev（HEAD=`8e097af`，领先 origin/main），dev 与 main 冒烟测试均通过（162 断言 + UI 单测）；仅远端推送因令牌权限被阻。
 - 触发停手规则：推送连续失败（main+dev / x-access-token 直推 / API 写 各试 1 次均 403），停止重试，等用户在 GitHub 修正令牌权限后重推。
 
-> **所需操作（用户）**：GitHub → Settings → Developer settings → Fine-grained tokens → 打开 Windows 凭据库 `git:https://github.com` 对应的令牌，确认 **Repository access** 含 `QUEQUE0926/FocusStation` 且 **Permissions → Contents = Read and write**；保存后本机重推即可。若仍不行，改用"All repositories"范围的细粒度令牌并更新凭据库。
+> **解决（2026-09-08 20:47）**：用户提供了具备 FocusStation 写权限的新细粒度令牌（`github_pat_...`）。已用 `git credential approve` 以用户名 `x-access-token` 存入本机凭据库（Windows 凭据管理器 `git:https://github.com`），替换旧的无权限令牌。API 写测试从 403 变为 422（"Object does not exist"＝鉴权通过、仅因本地提交尚未上远端），确认权限恢复。`git push origin main dev` 成功（main: `755fa6c..7e5cb5a`，dev: `2b6c615..7e5cb5a`）。本地合并与冒烟测试均已在推送前通过。
 
 ---
 
