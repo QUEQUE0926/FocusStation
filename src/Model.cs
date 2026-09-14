@@ -216,8 +216,8 @@ namespace LittleFocus {
     double limit=IsChallenge&&InOvertime?OvertimeStartRunSeconds+OvertimeSeconds:ChallengeBaseMinutes*60+ChallengeShiftSeconds-ChallengeStartOffsetSeconds;if(IsChallenge&&seconds>Math.Max(0,limit-RunSeconds)){seconds=Math.Max(0,limit-RunSeconds);countedUntil=LastUtc.AddTicks((long)Math.Round(seconds*TimeSpan.TicksPerSecond));}
     if(seconds>0) { AddSpan(LastUtc,countedUntil);RunSeconds+=seconds; }
     LastUtc=now;
-    if(IsChallenge) {
-     double logical=ChallengeStartOffsetSeconds+RunSeconds;Reached.Clear();if(!InOvertime){while(stageIndex<Plan.Count){double boundary=Plan.Take(stageIndex+1).Sum(s=>TaskSupport.StageSeconds(Current,s,Data))+ChallengeShiftSeconds;if(logical<boundary)break;Reached.Add(Plan[stageIndex++]);}}
+     if(IsChallenge) {
+      double logical=ChallengeStartOffsetSeconds+RunSeconds;Reached.Clear();if(!InOvertime){while(stageIndex<Plan.Count){if(Plan[stageIndex].Done){stageIndex++;continue;}double boundary=Plan.Take(stageIndex+1).Sum(s=>TaskSupport.StageSeconds(Current,s,Data))+ChallengeShiftSeconds;if(logical<boundary)break;Reached.Add(Plan[stageIndex++]);}}
      if(RunSeconds>=limit){if(InOvertime)CommitOvertime();ChallengeAtDeadline=true;State=Phase.Paused;return "challenge-end";}
      if(Reached.Count>0){Log("signal","stage",Reached[Reached.Count-1].Title);State=Phase.Paused;return "stage";}
      if(RunSeconds>=NextBreakReminderSeconds){State=Phase.Paused;return "challenge-break";}return null;
