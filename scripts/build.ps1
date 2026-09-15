@@ -49,6 +49,27 @@ if ($branch -ne 'main') { $defineArg = '/define:DEV' }
 
 $sources = @('Model.cs','Planner.cs','Sync.cs','Dialogs.cs','MiniTimer.cs','MainForm.cs','Program.cs') | ForEach-Object { $srcDir + '\' + $_ }
 
-& $compiler /nologo "/resource:$($policyDir + '\i-have-adhd-policy.md'),LittleFocus.PrimaryAdhdPolicy" "/resource:$($policyDir + '\ai-runtime-policy.md'),LittleFocus.RuntimePolicy" "/resource:$($policyDir + '\adhd-friendly-policy.md'),LittleFocus.AdhdPolicy" /target:winexe /platform:anycpu /optimize+ "/out:$outputFile" "/win32manifest:$manifest" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Core.dll /reference:System.Xml.dll /reference:System.Web.Extensions.dll /reference:System.Net.Http.dll /reference:System.Security.dll $defineArg $sources
+$compilerArgs = @(
+    '/nologo',
+    "/resource:$($policyDir + '\i-have-adhd-policy.md'),LittleFocus.PrimaryAdhdPolicy",
+    "/resource:$($policyDir + '\ai-runtime-policy.md'),LittleFocus.RuntimePolicy",
+    "/resource:$($policyDir + '\adhd-friendly-policy.md'),LittleFocus.AdhdPolicy",
+    '/target:winexe',
+    '/platform:anycpu',
+    '/optimize+',
+    "/out:$outputFile",
+    "/win32manifest:$manifest",
+    '/reference:System.Windows.Forms.dll',
+    '/reference:System.Drawing.dll',
+    '/reference:System.Core.dll',
+    '/reference:System.Xml.dll',
+    '/reference:System.Web.Extensions.dll',
+    '/reference:System.Net.Http.dll',
+    '/reference:System.Security.dll'
+)
+if ($defineArg -ne '') { $compilerArgs += $defineArg }
+$compilerArgs += $sources
+
+& $compiler @compilerArgs
 if ($LASTEXITCODE -ne 0) { throw 'compile failed' }
 Write-Output "built: $outputFile (branch=$branch define=$defineArg)"
