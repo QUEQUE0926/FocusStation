@@ -38,7 +38,7 @@ if ($branch -ne 'main') {
     $s = $branch -replace '[^A-Za-z0-9._-]', '-'
     $suffix = '-' + $s
 }
-$outputFile = $artifactsDir + '\FocusStation-v2.0.10' + $suffix + '.exe'
+$outputFile = $artifactsDir + '\FocusStation-v2.0.11' + $suffix + '.exe'
 
 # Branch-aware data isolation: non-main builds compile with the DEV symbol so
 # they read/write LittleFocusDesktop-dev instead of the production folder.
