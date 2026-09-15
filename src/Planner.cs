@@ -60,8 +60,9 @@ namespace LittleFocus {
    new Stage{Remaining=100,Title="想切入点",Action="确定读者、要回答的问题，写下一句核心观点。"},
    new Stage{Remaining=90,Title="写标题",Action="写 3 个候选标题，先选一个可用的，不追求完美。"},
    new Stage{Remaining=80,Title="列大纲",Action="写出开头、3 个主要观点和结尾，每部分留一句提示。"},
-   new Stage{Remaining=65,Title="写正文",Action="沿着大纲先写完初稿。卡住的地方做标记，继续向前。"},
-   new Stage{Remaining=20,Title="配图与检查",Action="选择配图，核对标题和重点，完成一次通读。"}};}
+   new Stage{Remaining=70,Title="写正文",Action="沿着大纲先写完初稿。卡住的地方做标记，继续向前。"},
+   new Stage{Remaining=20,Title="配图与检查",Action="选择配图，核对标题和重点，完成一次通读。"},
+   new Stage{Remaining=15,Title="做封面",Action="配合文章风格即可。"}};}
   public static string Validate(List<Stage> stages){
    if(stages==null || stages.Count<1 || stages.Count>20)return "请设置 1–20 个子任务。";
    if(stages[0].Remaining!=100)return "第一个子任务从剩余 100%（开始时）起步。";

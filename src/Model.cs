@@ -24,6 +24,7 @@ namespace LittleFocus {
   public DateTime LastWorkedUtc;
   public bool Enabled = true;
   public bool Completed;
+  public bool Pinned;
   public bool Deleted;
   public bool Challenge;
   public bool AllowDistraction;

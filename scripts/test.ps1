@@ -40,3 +40,8 @@ $uiUnitSources = @('Model.cs','Planner.cs','Sync.cs','Dialogs.cs','MiniTimer.cs'
 if ($LASTEXITCODE -ne 0) { throw 'ui unit test build failed' }
 & $uiUnitExe ($workDir + '\ui-unit-data')
 if ($LASTEXITCODE -ne 0) { throw 'ui unit tests failed' }
+
+# 4) package the current branch only after every test has passed
+$buildScript = $projectRoot + '\scripts\build.ps1'
+& powershell.exe -ExecutionPolicy Bypass -File $buildScript
+if ($LASTEXITCODE -ne 0) { throw 'build failed after tests passed' }
