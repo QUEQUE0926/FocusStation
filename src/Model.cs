@@ -46,6 +46,22 @@ namespace LittleFocus {
   public bool Done;
   public override string ToString(){return Title;}
  }
+ // v2.0.14：可编辑的子任务模板。存在 data.xml 里，和项目数据一起走备份/同步。
+ public class StageTemplate {
+  public string Id=Guid.NewGuid().ToString("N");
+  public string Name="";
+  public List<Stage> Stages=new List<Stage>();
+  public override string ToString(){return Name;}
+ }
+ public static class TemplateLibrary {
+  public static StageTemplate Writing(){return new StageTemplate{Name="写稿",Stages=Planner.Writing()};}
+  public static List<StageTemplate> Defaults(){return new List<StageTemplate>{Writing()};}
+  // 载入项目时按模板复制一份，改项目里的子任务不会反过来改掉模板。
+  public static List<Stage> Clone(IEnumerable<Stage> stages){return (stages??new List<Stage>()).Where(s=>s!=null).Select(s=>new Stage{Id=Guid.NewGuid().ToString("N"),Remaining=s.Remaining,Title=s.Title,Action=s.Action}).ToList();}
+  // 保存模板时把不合法的百分比序列摊平成等差序列，免得用户被“百分比必须递减”卡住。
+  public static void Normalize(List<Stage> stages){if(stages==null||stages.Count==0)return;int count=stages.Count;bool previousOk=true;for(int i=0;i<count;i++){var s=stages[i];if(s.Remaining<1||s.Remaining>100){previousOk=false;break;}if(i>0&&s.Remaining>=stages[i-1].Remaining){previousOk=false;break;}}if(previousOk&&stages[0].Remaining==100)return;for(int i=0;i<count;i++)stages[i].Remaining=count==1?100:Math.Max(1,100-(int)Math.Floor(90.0*i/Math.Max(1,count-1)));}
+  public static void Ensure(AppData data){if(data==null)return;if(data.Templates==null)data.Templates=new List<StageTemplate>();data.Templates.RemoveAll(t=>t==null);if(!data.TemplatesSeeded){data.TemplatesSeeded=true;if(data.Templates.Count==0)data.Templates.AddRange(Defaults());}foreach(var t in data.Templates){t.Name=(t.Name??"").Trim();if(t.Stages==null)t.Stages=new List<Stage>();t.Stages.RemoveAll(s=>s==null);}}
+ }
  public class BreakIdea {
   public string Id=Guid.NewGuid().ToString("N");
   public DateTime UpdatedUtc=DateTime.UtcNow;
@@ -106,6 +122,9 @@ namespace LittleFocus {
   public bool Rewards = true;
   public bool UseBuiltins = true;
   public List<Project> Projects = new List<Project>();
+  // 注意：这里必须留空列表。XmlSerializer 对集合是「往已有列表里 Add」，若用初始化器预置默认模板，每次读盘都会重复一份。
+  public List<StageTemplate> Templates = new List<StageTemplate>();
+  public bool TemplatesSeeded;
   public List<BreakIdea> Ideas = new List<BreakIdea>();
   public List<TimeRecord> Records = new List<TimeRecord>();
   public List<ChallengeAdjustment> ChallengeAdjustments=new List<ChallengeAdjustment>();
@@ -157,6 +176,8 @@ namespace LittleFocus {
    if(data==null || data.Version!=1 || data.Projects==null || data.Ideas==null || data.Records==null) throw new InvalidDataException("不支持的数据格式");
    if(data.ChallengeAdjustments==null)data.ChallengeAdjustments=new List<ChallengeAdjustment>();if(data.FreshContents==null)data.FreshContents=new List<FreshContent>();if(data.DistractionLog==null)data.DistractionLog=new List<DistractionRecord>();if(data.RuntimeEvents==null)data.RuntimeEvents=new List<RuntimeEvent>();data.RuntimeEvents=data.RuntimeEvents.Where(x=>x!=null&&!String.IsNullOrWhiteSpace(x.Kind)&&!String.IsNullOrWhiteSpace(x.Name)).OrderBy(x=>x.AtUtc).Take(2000).ToList();
    AiDefaults.Migrate(data);
+   TemplateLibrary.Ensure(data);
+   data.Templates=data.Templates.Where(t=>!String.IsNullOrWhiteSpace(t.Name)&&t.Stages.Count>0).ToList();foreach(var t in data.Templates)t.Stages=t.Stages.Where(s=>!String.IsNullOrWhiteSpace(s.Title)).ToList();data.Templates=data.Templates.Where(t=>t.Stages.Count>0).ToList();
    data.DefaultProjectMinutes=Math.Max(1,Math.Min(720,data.DefaultProjectMinutes));
    data.FocusMinutes=Math.Max(1,Math.Min(240,data.FocusMinutes));
    if(data.Projects.Any(p=>p==null || String.IsNullOrWhiteSpace(p.Id) || String.IsNullOrWhiteSpace(p.Name)) || data.Projects.Select(p=>p.Id).Distinct().Count()!=data.Projects.Count) throw new InvalidDataException("任务数据无效");

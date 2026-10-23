@@ -197,8 +197,10 @@ namespace LittleFocus {
   DataGridView grid;Label status;Button generate,save,removeStage;int dragRow=-1;Point dragPoint;DateTime dragStarted;FlowLayoutPanel bottom,planTools;
   CancellationTokenSource cancel;bool busy,updatingDurations;string source;
   readonly Project original;
-    public ProjectDialog(Project project,ApiConfig config,string dataDirectory,AppData data=null){
-     original=project;api=config;directory=dataDirectory;appData=data;if(String.IsNullOrWhiteSpace(project.Name)&&data!=null){project.AllowDistraction=data.DefaultAllowDistraction;project.Challenge=data.DefaultProjectChallenge;project.ChallengeMinutes=Math.Max(1,data.FocusMinutes);project.ChallengeMinutesCustomized=false;project.PomodoroMinutes=0;}source=project.PlanSource;
+  // v2.0.14：模板按钮（单击出下拉、长按改模板）
+  List<StageTemplate> templates;Button templateButton;ContextMenuStrip templateMenu;System.Windows.Forms.Timer templateHold;bool templateHolding;DateTime templateClickBlockedUntil;readonly Action persist;
+    public ProjectDialog(Project project,ApiConfig config,string dataDirectory,AppData data=null,Action persistData=null){
+     original=project;api=config;directory=dataDirectory;appData=data;persist=persistData;templates=data!=null&&data.Templates!=null&&data.Templates.Count>0?data.Templates:TemplateLibrary.Defaults();if(String.IsNullOrWhiteSpace(project.Name)&&data!=null){project.AllowDistraction=data.DefaultAllowDistraction;project.Challenge=data.DefaultProjectChallenge;project.ChallengeMinutes=Math.Max(1,data.FocusMinutes);project.ChallengeMinutesCustomized=false;project.PomodoroMinutes=0;}source=project.PlanSource;
    UI.FormStyle(this,project.Name==""?"新建任务":"编辑任务",900,710);Padding=new Padding(20);
    var root=UI.Table(1,42,38,28,76,46,-100,48,54);
    root.Controls.Add(UI.Label("只需要写下，你想做什么。",16,true),0,0);name=UI.TextBox();name.MaxLength=100;name.Text=project.Name;root.Controls.Add(name,0,1);
@@ -206,7 +208,13 @@ namespace LittleFocus {
    mode=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Width=145,Font=UI.Font(10),Margin=new Padding(4,8,8,4)};mode.Items.AddRange(new object[]{"番茄钟","极限挑战"});mode.SelectedIndex=project.Challenge?1:0;
    minutes=new NumericUpDown{Minimum=1,Maximum=720,Value=project.ChallengeMinutes,Width=70,Margin=new Padding(4,8,4,4)};
    var modeLabel=UI.Label("计时方式",9);modeLabel.Dock=DockStyle.None;modeLabel.Size=new Size(70,34);var minLabel=UI.Label("时长分钟",9);minLabel.Dock=DockStyle.None;minLabel.Size=new Size(95,34);
-   generate=UI.Button("AI拆解",async()=>await Generate());readHistory=new CheckBox{Text="读取加时 / 提前历史",AutoSize=true,Checked=false,Margin=new Padding(8,11,8,4)};removeStage=UI.Button("-子任务",()=>RemoveStage());removeStage.Enabled=false;planTools=UI.Flow(generate,readHistory,UI.Button("写稿模板",()=>{LoadStages(Planner.Writing());source="写稿模板";status.Text="模板已载入，无 API 请求。";}),UI.Button("+子任务",()=>AddStage()),removeStage);root.Controls.Add(planTools,0,4);
+   generate=UI.Button("AI拆解",async()=>await Generate());readHistory=new CheckBox{Text="读取加时 / 提前历史",AutoSize=true,Checked=false,Margin=new Padding(8,11,8,4)};removeStage=UI.Button("-子任务",()=>RemoveStage());removeStage.Enabled=false;
+   templateButton=UI.Button("模板",()=>{if(DateTime.UtcNow<templateClickBlockedUntil)return;ShowTemplateMenu();});templateButton.Name="TemplateButton";
+   templateHold=new System.Windows.Forms.Timer{Interval=800};templateHold.Tick+=(s,e)=>{templateHold.Stop();if(!templateHolding)return;templateHolding=false;ShowTemplateEditor();templateClickBlockedUntil=DateTime.UtcNow.AddMilliseconds(400);};
+   templateButton.MouseDown+=(s,e)=>{if(e.Button!=MouseButtons.Left)return;templateHolding=true;templateHold.Start();};
+   templateButton.MouseUp+=(s,e)=>{templateHolding=false;templateHold.Stop();};
+   FormClosing+=(s,e)=>templateHold.Stop();
+   planTools=UI.Flow(generate,readHistory,templateButton,UI.Button("+子任务",()=>AddStage()),removeStage);root.Controls.Add(planTools,0,4);
    grid=UI.Grid();grid.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.AllCells;grid.ScrollBars=ScrollBars.Both;grid.EditMode=DataGridViewEditMode.EditOnKeystrokeOrF2;grid.AllowUserToDeleteRows=false;grid.Columns.Add(new DataGridViewCheckBoxColumn{Name="done",HeaderText="完成",FillWeight=12});grid.Columns.Add("remaining","剩余 %");grid.Columns[1].FillWeight=18;grid.Columns.Add(new DataGridViewTextBoxColumn{Name="duration",HeaderText="时长（可编辑）",ReadOnly=false,MinimumWidth=120});grid.Columns.Add("title","子任务（按执行顺序）");grid.Columns[3].FillWeight=45;grid.Columns.Add("action","下一步动作");grid.Columns[4].MinimumWidth=380;grid.DataError+=(s,e)=>{e.ThrowException=false;};LoadStages(project.Stages);root.Controls.Add(grid,0,5);
    foreach(DataGridViewColumn column in grid.Columns)column.SortMode=DataGridViewColumnSortMode.NotSortable;
    grid.SelectionChanged+=(s,e)=>removeStage.Enabled=grid.SelectedRows.Count>0;grid.CellDoubleClick+=(s,e)=>{if(e.RowIndex>=0)grid.BeginEdit(true);};
@@ -225,6 +233,23 @@ namespace LittleFocus {
   int PlanMinutes(){if(mode.SelectedIndex==1)return (int)minutes.Value;if(original.PomodoroMinutes>0)return original.PomodoroMinutes;return appData==null?25:Math.Max(1,appData.FocusMinutes);}
   void UpdateDurations(){if(grid==null||grid.Columns["duration"]==null)return;updatingDurations=true;try{int total=PlanMinutes();for(int i=0;i<grid.Rows.Count;i++){int current,next=0;if(!Int32.TryParse(Convert.ToString(grid.Rows[i].Cells[1].Value),out current))continue;if(i+1<grid.Rows.Count)Int32.TryParse(Convert.ToString(grid.Rows[i+1].Cells[1].Value),out next);int seconds=grid.Rows[i].Cells[2].Tag is int?(int)grid.Rows[i].Cells[2].Tag:Math.Max(0,(int)Math.Round(total*60*Math.Max(0,current-next)/100.0));grid.Rows[i].Cells[2].Value=FocusEngine.Duration(seconds);}}finally{updatingDurations=false;}}
   void ApplyDuration(int row){if(row<0||row>=grid.Rows.Count)return;TimeSpan span;if(!TimeSpan.TryParse(Convert.ToString(grid.Rows[row].Cells[2].Value),out span)||span.TotalSeconds<0){UpdateDurations();return;}int total=Math.Max(60,PlanMinutes()*60),seconds=Math.Max(1,(int)Math.Round(span.TotalSeconds)),share=Math.Max(1,(int)Math.Round(seconds*100.0/total));int current=100;if(!Int32.TryParse(Convert.ToString(grid.Rows[row].Cells[1].Value),out current))current=100;updatingDurations=true;try{grid.Rows[row].Cells[2].Tag=seconds;if(row+1<grid.Rows.Count){int after=0;if(row+2<grid.Rows.Count)Int32.TryParse(Convert.ToString(grid.Rows[row+2].Cells[1].Value),out after);grid.Rows[row+1].Cells[1].Value=Math.Max(after,Math.Min(current,current-share));grid.Rows[row+1].Cells[2].Tag=null;}else{int upper=row==0?100:Convert.ToInt32(grid.Rows[row-1].Cells[1].Value);grid.Rows[row].Cells[1].Value=Math.Max(0,Math.Min(upper,share));}}finally{updatingDurations=false;}UpdateDurations();}
+  // v2.0.14：单击“模板”出下拉列表；长按（800ms）打开模板编辑
+  void ShowTemplateMenu(){
+   if(templateMenu!=null){templateMenu.Dispose();templateMenu=null;}
+   templateMenu=new ContextMenuStrip{ShowImageMargin=false};
+   if(templates.Count==0)templateMenu.Items.Add(new ToolStripMenuItem("还没有模板，长按“模板”新建一个"){Enabled=false});
+   foreach(var item in templates.ToList()){var captured=item;templateMenu.Items.Add(new ToolStripMenuItem((String.IsNullOrWhiteSpace(item.Name)?"未命名模板":item.Name)+"（"+item.Stages.Count+" 步）",null,(s,e)=>ApplyTemplate(captured)));}
+   templateMenu.Items.Add(new ToolStripSeparator());
+   templateMenu.Items.Add(new ToolStripMenuItem("长按模板按钮可以修改模板"){Enabled=false});
+   templateMenu.Show(templateButton,new Point(0,templateButton.Height));
+  }
+  void ApplyTemplate(StageTemplate template){if(template==null||template.Stages==null||template.Stages.Count==0){status.Text="这个模板还没有子任务。";return;}LoadStages(TemplateLibrary.Clone(template.Stages));source=String.IsNullOrWhiteSpace(template.Name)?"模板":template.Name;status.Text="已载入模板「"+source+"」，无 API 请求。";}
+  void ShowTemplateEditor(){
+   using(var d=new TemplateEditorDialog(templates,persist)){if(d.ShowDialog(this)!=DialogResult.OK)return;}
+   if(appData!=null&&!ReferenceEquals(appData.Templates,templates)){appData.Templates.Clear();appData.Templates.AddRange(templates);}
+   if(persist!=null)persist();
+   status.Text="模板已更新，下次点“模板”就能看到。";
+  }
   class StageDrag{public ProjectDialog Owner;public int Index;}
   void RenumberStages(){for(int i=0;i<grid.Rows.Count;i++)grid.Rows[i].Cells[1].Value=100-(int)Math.Floor(90.0*i/Math.Max(1,grid.Rows.Count-1));UpdateDurations();}
   void AddStage(){if(grid.Rows.Count>=20){status.Text="最多20个子任务。";return;}grid.EndEdit();int index=grid.SelectedRows.Count==0?grid.Rows.Count:grid.SelectedRows[0].Index+1;int newRemaining;if(grid.Rows.Count==0)newRemaining=100;else if(index>=grid.Rows.Count){int last=ParsePct(grid.Rows[grid.Rows.Count-1].Cells[1].Value);newRemaining=Math.Max(1,last-10);if(newRemaining>=last||newRemaining<1){RenumberStages();return;}}else{int above=ParsePct(grid.Rows[index-1].Cells[1].Value);int below=ParsePct(grid.Rows[index].Cells[1].Value);if(above-below>=2)newRemaining=(above+below)/2;else{RenumberStages();return;}}grid.Rows.Insert(index,false,newRemaining,"","新子任务","");grid.Rows[index].Tag=Guid.NewGuid().ToString("N");UpdateDurations();grid.CurrentCell=grid.Rows[index].Cells[3];grid.ClearSelection();}
@@ -250,6 +275,69 @@ namespace LittleFocus {
    try{var result=Draft();result.Stages=ReadStages();if(result.Stages.Count>0){string error=Planner.Validate(result.Stages);if(error!=null)throw new InvalidOperationException(error);}else if(result.Challenge){result.Stages=new List<Stage>{new Stage{Remaining=100,Title="开始任务",Action=result.NextStep},new Stage{Remaining=90,Title="检查方向",Action="当前的一小步是什么？"},new Stage{Remaining=70,Title="继续推进",Action="暂时放下无关事项，回到当前任务。"},new Stage{Remaining=50,Title="时间过半",Action="检查进度，先完成必要部分。"},new Stage{Remaining=30,Title="进入后半程",Action="缩小范围，优先做出可用结果。"},new Stage{Remaining=10,Title="收尾与保存",Action="整理已有成果，留时间保存。"}};result.PlanSource="默认提醒（可再 AI 拆解）";}
     if(result.PlanSource=="待拆解"||result.PlanSource=="待 AI 拆解")result.PlanSource="手动子任务";Result=result;DialogResult=DialogResult.OK;Close();
    }catch(Exception ex){status.Text=ex.Message;}
+  }
+ }
+ // v2.0.14：模板编辑弹窗。左侧模板名称列，右侧模板详情（子任务 + 下一步动作）。
+ public class TemplateEditorDialog:Form {
+  readonly List<StageTemplate> working;readonly List<StageTemplate> target;readonly Action persist;ListBox names;TextBox title;DataGridView grid;Label status;bool updating;int current=-1;
+  static List<StageTemplate> Copy(List<StageTemplate> source){var list=new List<StageTemplate>();if(source!=null)foreach(var t in source)if(t!=null)list.Add(new StageTemplate{Id=t.Id,Name=t.Name,Stages=TemplateLibrary.Clone(t.Stages)});return list;}
+  public TemplateEditorDialog(List<StageTemplate> templates,Action persistData){
+   target=templates;working=Copy(templates);persist=persistData;
+   UI.FormStyle(this,"模板 · 左边选名称，右边改内容",900,620);Padding=new Padding(20);
+   var root=UI.Table(1,40,-100,46,30);
+   root.Controls.Add(UI.Label("模板：左边选一个名字，右边改它的子任务。保存后回到任务页就能用。",12,true),0,0);
+   var body=new Panel{Dock=DockStyle.Fill,Margin=new Padding(0)};
+   var right=new Panel{Dock=DockStyle.Fill,Padding=new Padding(14,0,0,0)};
+   var left=new Panel{Dock=DockStyle.Left,Width=240};
+   var leftRoot=UI.Table(1,28,-100,44);
+   leftRoot.Controls.Add(UI.Label("模板名称",9,true),0,0);
+   names=new ListBox{Dock=DockStyle.Fill,Font=UI.Font(10),BorderStyle=BorderStyle.FixedSingle,IntegralHeight=false};
+   leftRoot.Controls.Add(names,0,1);
+   leftRoot.Controls.Add(UI.Flow(UI.Button("新建",()=>NewTemplate()),UI.Button("删除",()=>DeleteTemplate())),0,2);
+   left.Controls.Add(leftRoot);
+   var rightRoot=UI.Table(1,46,-100,44);
+   title=new TextBox{Dock=DockStyle.Fill,Font=UI.Font(11),BorderStyle=BorderStyle.FixedSingle,Margin=new Padding(4)};
+   var titleRow=new Panel{Dock=DockStyle.Fill};
+   var titleLabel=new Label{Text="当前模板",Font=UI.Font(9),ForeColor=UI.Muted,Dock=DockStyle.Left,Width=80,TextAlign=ContentAlignment.MiddleLeft};
+   var titleBox=new Panel{Dock=DockStyle.Fill,Padding=new Padding(0,5,0,5)};titleBox.Controls.Add(title);
+   titleRow.Controls.Add(titleBox);titleRow.Controls.Add(titleLabel);
+   rightRoot.Controls.Add(titleRow,0,0);
+   grid=UI.Grid();
+   grid.Columns.Add("pct","剩余 %");grid.Columns[0].FillWeight=14;grid.Columns[0].MinimumWidth=70;
+   grid.Columns.Add("stage","子任务（按执行顺序）");grid.Columns[1].FillWeight=40;grid.Columns[1].MinimumWidth=160;
+   grid.Columns.Add("action","下一步动作");grid.Columns[2].FillWeight=46;grid.Columns[2].MinimumWidth=200;
+   rightRoot.Controls.Add(grid,0,1);
+   rightRoot.Controls.Add(UI.Flow(UI.Button("+子任务",()=>AddRow()),UI.Button("-子任务",()=>RemoveRow())),0,2);
+   right.Controls.Add(rightRoot);
+   body.Controls.Add(right);body.Controls.Add(left);
+   root.Controls.Add(body,0,1);
+   root.Controls.Add(UI.Flow(UI.Button("保存模板",()=>SaveAll(),true),UI.Button("取消",()=>Close())),0,2);
+   status=UI.Label("百分比在保存时会自动排成递减序列，不用手动算。",9);status.ForeColor=UI.Muted;root.Controls.Add(status,0,3);
+   Controls.Add(root);
+   names.SelectedIndexChanged+=(s,e)=>{if(updating)return;SaveCurrent();current=names.SelectedIndex;LoadCurrent();};
+   current=working.Count>0?0:-1;RefreshNames();LoadCurrent();
+  }
+  void RefreshNames(){updating=true;names.Items.Clear();foreach(var t in working)names.Items.Add(String.IsNullOrWhiteSpace(t.Name)?"未命名模板":t.Name);names.SelectedIndex=current;updating=false;}
+  void SaveCurrent(){if(current<0||current>=working.Count)return;working[current].Name=(title.Text??"").Trim();working[current].Stages=ReadGrid();}
+  void LoadCurrent(){updating=true;try{bool has=current>=0&&current<working.Count;title.Enabled=has;grid.Enabled=has;title.Text=has?working[current].Name:"";grid.Rows.Clear();if(has)foreach(var s in working[current].Stages)grid.Rows.Add(s.Remaining,s.Title,s.Action);}finally{updating=false;}}
+  List<Stage> ReadGrid(){grid.EndEdit();var list=new List<Stage>();foreach(DataGridViewRow row in grid.Rows){if(row.IsNewRow)continue;string text=Convert.ToString(row.Cells[1].Value).Trim();if(text.Length==0)continue;int pct;if(!Int32.TryParse(Convert.ToString(row.Cells[0].Value),out pct))pct=100;list.Add(new Stage{Remaining=pct,Title=text,Action=Convert.ToString(row.Cells[2].Value).Trim()});}return list;}
+  void NewTemplate(){SaveCurrent();working.Add(new StageTemplate{Name="新模板",Stages=new List<Stage>{new Stage{Remaining=100,Title="第一步",Action=""}}});current=working.Count-1;RefreshNames();LoadCurrent();title.Focus();}
+  void DeleteTemplate(){if(current<0||current>=working.Count)return;working.RemoveAt(current);current=Math.Min(current,working.Count-1);RefreshNames();LoadCurrent();}
+  void AddRow(){int last=100;if(grid.Rows.Count>0)Int32.TryParse(Convert.ToString(grid.Rows[grid.Rows.Count-1].Cells[0].Value),out last);grid.Rows.Add(grid.Rows.Count==0?100:Math.Max(1,last-10),"新子任务","");}
+  void RemoveRow(){if(grid.SelectedRows.Count==0){status.Text="先在右边选中一行，再点 -子任务。";return;}grid.Rows.RemoveAt(grid.SelectedRows[0].Index);}
+  void SaveAll(){
+   SaveCurrent();
+   if(working.Count==0){status.Text="至少保留一个模板，或者点“取消”放弃这次修改。";return;}
+   for(int i=0;i<working.Count;i++){
+    var t=working[i];t.Name=(t.Name??"").Trim();
+    if(t.Name.Length==0){current=i;RefreshNames();LoadCurrent();status.Text="模板名称不能为空。";return;}
+    t.Stages=(t.Stages??new List<Stage>()).Where(s=>s!=null&&!String.IsNullOrWhiteSpace(s.Title)).ToList();
+    if(t.Stages.Count==0){current=i;RefreshNames();LoadCurrent();status.Text="模板「"+t.Name+"」还没有子任务。";return;}
+    TemplateLibrary.Normalize(t.Stages);
+   }
+   if(target!=null){target.Clear();target.AddRange(working);}
+   if(persist!=null)persist();
+   DialogResult=DialogResult.OK;Close();
   }
  }
 }
