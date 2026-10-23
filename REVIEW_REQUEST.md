@@ -1,7 +1,8 @@
-# REVIEW_REQUEST · 推送持续被阻塞：github.com:443 不可达（2026-10-23 起，截至 v2.0.14）
+# REVIEW_REQUEST · 推送持续被阻塞：github.com:443 不可达（2026-10-23 起，截至 v2.0.15）
 
-- 状态：**代码、测试、构建全部完成，仅「推送到 GitHub」没做成**。本地待推提交 3 个：`9384644`（v2.0.13）、`e2a2963`（文档）、`c6024c1`（v2.0.14）；`main` / `dev` 同位。正式包 `artifacts/FocusStation-v2.0.13.exe`、`FocusStation-v2.0.14.exe` 已生成。
-- 现象：`git push`（含直推令牌 URL）连续报 `Failed to connect to github.com:443 after 21s: Could not connect to server`。
+- 状态：**代码、测试、构建全部完成，仅「推送到 GitHub」没做成**。本地待推提交 4 个：`9384644`（v2.0.13）、`e2a2963`（文档）、`c6024c1`（v2.0.14）、`f8fd4e6`（v2.0.15）；`main` / `dev` 同位。
+- 已生成的正式包：`artifacts/FocusStation-v2.0.13.exe`、`-v2.0.14.exe`、`-v2.0.15.exe`。
+- 现象：`git push`（含直推令牌 URL）连续报 `Failed to connect to github.com:443 after 21s: Could not connect to server`。v2.0.15 本轮又试了 1 次，仍是 21s 超时，已按停手规则停止重试。
 - 诊断（只读）：
   - `curl https://api.github.com/` → **200**（能出网）
   - `curl https://github.com/` → **000**（连不上）

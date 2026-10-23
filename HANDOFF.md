@@ -1,7 +1,7 @@
 # HANDOFF.md — FocusStation 交接文档
 
 > 给**完全没有上下文的新会话**看。下次开新会话，第一句话就应该是「先读 HANDOFF.md」。
-> 本文件最后更新：2026-10-23（v2.0.14 完成并合并 main；推送仍被网络阻塞，见 REVIEW_REQUEST.md）。
+> 本文件最后更新：2026-10-23（v2.0.15 完成并合并 main；推送仍被网络阻塞，见 REVIEW_REQUEST.md）。
 
 ---
 
@@ -9,7 +9,7 @@
 
 FocusStation（专注小站）是一个 **Windows 桌面专注计时工具**（C# / .NET Framework 4.x，单文件 winexe，用 `csc.exe` 直接编译，无 csproj/sln）。本项目当前主线任务是**按腾讯文档《专注小站迭代log》逐版本修用户反馈**。
 
-当前版本：**v2.0.14**（已合并 main；**尚未推送**，github.com:443 不可达）。2026-10-23 这一天连做了三版：v2.0.12（今日专注后加括号）、v2.0.13（无记录项目也显示）、v2.0.14（把括号里的数改成真实累计专注 + 模板按钮改造）。
+当前版本：**v2.0.15**（已合并 main；**尚未推送**，github.com:443 不可达）。2026-10-23 这一天连做四版：v2.0.12（今日专注后加括号）、v2.0.13（无记录项目也显示）、v2.0.14（把括号里的数改成真实累计专注 + 模板按钮改造）、v2.0.15（内置模板换成 4 步「测评模板」+ 新建任务默认套用）。
 
 ---
 
@@ -54,33 +54,45 @@ FocusStation（专注小站）是一个 **Windows 桌面专注计时工具**（C
   - 保存是立即落盘的：`ProjectDialog` 新增第 5 个可选参数 `persist`，MainForm 传 `Save`，所以取消任务编辑也不会丢模板改动。
   - 踩坑（已修）：**不要用字段初始化器给 `Templates` 预置默认模板**——`XmlSerializer` 对集合是「往已有列表里 Add」，会导致每次读盘都多一份。现在默认模板由 `TemplateLibrary.Ensure()` 配 `TemplatesSeeded` 标记补齐。
 
+### 2.1d v2.0.15 两条反馈（版本 v2.0.15）
+- **① 内置模板换成截图里的内容，并改名「测评模板」**
+  - 原文：模板里的写稿（6步）的子项目改成截图所示；然后把该模板的名改成「测评模板」。
+  - 截图内容（4 步，剩余 % 100 / 80 / 45 / 20）：梳理测评框架 → 写正文初稿 → 润色与配图 → 做封面并定稿，动作文案照截图逐字抄进 `Planner.Review()`。
+  - `Planner.Writing()` → `Planner.Review()`；`TemplateLibrary.Writing()` → `TemplateLibrary.Review()`；`DefaultName="测评模板"`。
+  - **老数据迁移**：`AppData.TemplateRevision`（0→2，只跑一次）。仅当模板名仍是「写稿」、且 6 个子任务标题与旧内置逐字一致时，才改名 + 换成 4 步；**用户自己改过的模板一律不动**。挂在 `TemplateLibrary.Ensure()`，即 `Store.Decode` 里，升级后首次启动就生效。
+- **② 新建任务默认名 + 默认模板**
+  - 原文：点「＋ 新建」时任务名默认为 `游戏测评：《请输入游戏名字》`，并默认使用「测评模板」。
+  - 实现：`TaskSupport.NewProjectName` / `NewProjectPlaceholder` 两个常量；`ProjectDialog` 构造函数里用 `String.IsNullOrWhiteSpace(project.Name)` 判断「新建」（和原有默认计时方式、默认挑战开关同一处判断），预填名字并把模板 4 步深拷贝进 `project.Stages`。
+  - 细节：弹窗打开时只选中 `《请输入游戏名字》` 这一段，直接打字即替换，免得用户手动删；模板被删光时保持空白不崩。
+
 ### 2.2 测试
-- `scripts/test.ps1` 全绿：逻辑单测 **174 断言** + 界面单测（含渲染截图，新增 `template-editor-v16.png`）通过。
-- 新增回归断言覆盖：今日 10 分钟 + 昨天 2 小时 → `今日已专注：00:10:00（02:10:00）`；从未开始 → `项目总专注：00:00:00（今日没有记录噢）`；模板按钮/下拉/底部提示；模板存取往返不会重复；`Normalize` 修非法序列但不动手调好的序列；`Clone` 不共享对象。
+- `scripts/test.ps1` 全绿：逻辑单测 **178 断言** + 界面单测（含渲染截图）通过。
+- v2.0.15 新增断言：内置模板是 4 步且百分比 100/80/45/20；旧 6 步「写稿」自动迁移成 4 步「测评模板」且 `TemplateRevision==2`；用户改过的模板保持原样；新建弹窗标题预填、自动带 4 步子任务、模板名与步骤名逐个核对。
+- 顺手把三条与模板内容强绑定的老测试解耦（计时节点测试、5 行布局测试、保存测试），以后改模板内容不会再连带炸测试。
 
 ### 2.3 版本与构建
-- 版本号 v2.0.12 → v2.0.13 → **v2.0.14**（已同步 `scripts/build.ps1`、`README.md`、`docs/分支与发布流程.md`、`docs/CHANGELOG.md`）。
-- 产物：`artifacts/FocusStation-v2.0.14.exe`（main，无 DEV 宏）、`artifacts/FocusStation-v2.0.14-dev.exe`。
+- 版本号 v2.0.12 → v2.0.13 → v2.0.14 → **v2.0.15**（已同步 `scripts/build.ps1`、`README.md`、`docs/分支与发布流程.md`、`docs/CHANGELOG.md`）。
+- 产物：`artifacts/FocusStation-v2.0.15.exe`（main，无 DEV 宏）、`artifacts/FocusStation-v2.0.15-dev.exe`。
 
 ### 2.4 git
-- 提交：`c6024c1`（v2.0.14）→ `e2a2963`（文档）→ `9384644`（v2.0.13）→ `1b08460` → `b59515a`（v2.0.12）→ `e5fb068` → `c14ccca`。
-- 已推送的最后一个提交是 `1b08460`；`9384644`、`e2a2963`、`c6024c1` **只在本地**（github.com:443 不可达）。
+- 提交：`f8fd4e6`（v2.0.15）→ `c6024c1`（v2.0.14）→ `e2a2963`（文档）→ `9384644`（v2.0.13）→ `1b08460` → `b59515a`（v2.0.12）→ `e5fb068` → `c14ccca`。
+- 已推送的最后一个提交是 `1b08460`；`9384644`、`e2a2963`、`c6024c1`、`f8fd4e6` **只在本地**（github.com:443 不可达）。
 
 ---
 
 ## 3. 当前卡点 / 待定（需要用户拍板或信息）
 
-1. **3 个提交没推上 GitHub**：`9384644` / `e2a2963` / `c6024c1`。`api.github.com` 正常但 `github.com:443` 连不上（代理 7890 也没开）。网络恢复后一条命令补推，命令在 `REVIEW_REQUEST.md` 顶部。
-2. **腾讯文档状态未更新**：v2.0.12 第 1 条已被用户标「已修复」；v2.0.13 第 2 条、v2.0.14 两条都还没标。没擅自改表格，等用户定。
-3. **旧版 EXE 未清理**：`artifacts/` 里有 v2.0.10 / 11 / 12 / 13 的旧包，不会自动删。
+1. **4 个提交没推上 GitHub**：`9384644` / `e2a2963` / `c6024c1` / `f8fd4e6`。`api.github.com` 正常但 `github.com:443` 连不上（代理 7890 也没开）。网络恢复后一条命令补推，命令在 `REVIEW_REQUEST.md` 顶部。
+2. **腾讯文档状态未更新**：v2.0.12 第 1 条已被用户标「已修复」；v2.0.13 第 2 条、v2.0.14 两条、v2.0.15 两条都还没标。没擅自改表格，等用户定。
+3. **旧版 EXE 未清理**：`artifacts/` 里有 v2.0.10 / 11 / 12 / 13 / 14 的旧包，不会自动删。
 4. **v2.0.11 问题② 配图格式**仍未获用户确认（当时按推断实现）。
 
 ---
 
 ## 4. 下一步计划
 
-- 网络恢复后先补推这 3 个提交（`git push` 用 REVIEW_REQUEST 顶部那条带令牌 URL 的命令）。
-- 等下一版（v2.0.15）反馈；开工前始终确认自己在 `dev` 分支，走「test → 提 dev → 合并 main → build 生成 EXE → push」流程。
+- 网络恢复后先补推这 4 个提交（`git push` 用 REVIEW_REQUEST 顶部那条带令牌 URL 的命令）。
+- 等下一版（v2.0.16）反馈；开工前始终确认自己在 `dev` 分支，走「test → 提 dev → 合并 main → build 生成 EXE → push」流程。
 - 若用户要清旧包 / 改文档状态，分别单独确认后再动。
 
 ---
@@ -99,7 +111,15 @@ FocusStation（专注小站）是一个 **Windows 桌面专注计时工具**（C
    - `Store` 类**没实现 IDisposable**，不能用 `using(var store=new Store(...))`，要用普通 `var store=new Store(...)`。
    - C# 对象初始化器是 `Name="B"`，**不是** `Name:"B"`（冒号是错的，编译报语法错）。
    - 断言要核对**界面真实加载的对象**（MainForm 的 `data` 字段），别核对测试里自己 new 的旧副本——否则「通过了」但根本没验到东西。
-7. **腾讯文档图片取不到文字**：`get_content` 只返回文字，嵌在单元格里的截图/配图拿不到。遇到「如下图所示」这类需求，必须明说「配图无法文本获取，按推断实现，待用户确认」。
+7. **腾讯文档里的截图：`get_content` 拿不到，但导出 xlsx 能捞出来（2026-10-23 跑通）**：
+   - `get_content` 只返回文字，`sheet.get_cell_data` 也只返回值，**嵌在单元格里的截图一个字都拿不到**。
+   - 可用办法（全程只读，不碰用户的表）：
+     1. `tdoc_call tencent-docs manage.export_file '{"file_id":"<id>"}'` → 拿 `task_id`
+     2. `manage.export_progress '{"task_id":"..."}'` → `progress=100` 时返回带签名的 `file_url`（**只有约 30 分钟有效，且只能查一次，第二次查会 404**，所以拿到就立刻下载）
+     3. `curl -L -o log.xlsx "<file_url>"` → `unzip` → 图片在 `xl/drawings/media/`，子表与 drawing 的对应看 `xl/worksheets/_rels/sheetN.xml.rels` + `xl/workbook.xml`
+     4. 图片和单元格的对应关系看 `xl/drawings/drawingN.xml`：`<xdr:from><xdr:row>` 就是锚定的行号；`r:embed="rIdX"` 再去 `xl/drawings/_rels/drawingN.xml.rels` 查真实文件名。
+   - 可以直接 `Read` 那个 png 看图，不用 OCR。
+   - 仍在的坑：表格里的**文字**是 `sheet.get_cell_data` 最省事；但**图片**必须走上面这条导出链路。
 8. **git 推送：GCM 会 403，但令牌本身是好的（2026-10-23 复现）**：
    - 现象：`git push`（走本机凭据管理器）报 `Permission to QUEQUE0926/FocusStation.git denied to QUEQUE0926`，403。
    - 但用 `git credential fill` 取出同一枚令牌调 GitHub API：`/user` 200、`/repos/.../FocusStation` 200 且 `permissions.push=true`——**令牌有写权限，是 git 那条凭据链路的问题**。
