@@ -1,4 +1,25 @@
-# REVIEW_REQUEST · dev→main 推送被拒（403）：GCM 令牌无 FocusStation 写权限 — ✅ 已解决（2026-09-08 20:47）
+# REVIEW_REQUEST · v2.0.13 推送被阻塞：github.com:443 不可达（2026-10-23 16:59）
+
+- 状态：**代码与构建全部完成，仅「推送到 GitHub」这一步没做成**。main / dev 本地均已到 `9384644`，正式包 `artifacts/FocusStation-v2.0.13.exe` 已生成。
+- 现象：`git push`（含直推令牌 URL）连续 2 次报 `Failed to connect to github.com:443 after 21s: Could not connect to server`。
+- 诊断（只读）：
+  - `curl https://api.github.com/` → **200**（能出网）
+  - `curl https://github.com/` → **000**（连不上）
+  - `git ls-remote origin` → 同样 443 超时
+  - 代理 `127.0.0.1:7890` 没有进程监听（`proxy7890=000`）
+  - DNS 正常解析到 `20.205.243.166`
+- 判断：**不是令牌问题**（上一版 v2.0.12 推送成功，用的同一枚令牌），是 github.com 这个域名当前网络不可达；api.github.com 走的是另一条线路/边缘节点所以正常。
+- 触发停手规则：同一操作连续失败 2 次，停止重试。
+- 恢复办法（网络正常后，一条命令即可）：确认能 `curl https://github.com/` 返回 200（或重新开启本地代理 7890）后执行
+  ```bash
+  cd /i/AIstore/9.FocusStation
+  TOKEN=$(printf "protocol=https\nhost=github.com\n\n" | git credential fill 2>/dev/null | sed -n 's/^password=//p')
+  GIT_TERMINAL_PROMPT=0 git -c credential.helper= push "https://x-access-token:$TOKEN@github.com/QUEQUE0926/FocusStation.git" main dev
+  ```
+
+---
+
+# 历史存档 · dev→main 推送被拒（403）：GCM 令牌无 FocusStation 写权限 — ✅ 已解决（2026-09-08 20:47）
 
 - 日期：2026-09-08 20:35（阻塞），2026-09-08 20:47（解决）
 - 现象：`git push origin main dev`（GCM 凭据）返回 403：`Permission to QUEQUE0926/FocusStation.git denied to QUEQUE0926`。单独推 `dev`、改用 `x-access-token:<令牌>` 直推，均 403；代理已恢复（`git ls-remote` 正常）。
