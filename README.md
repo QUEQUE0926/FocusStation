@@ -1,10 +1,10 @@
-# 专注小站 · FocusStation（LittleFocus Desktop）
+﻿# 专注小站 · FocusStation（LittleFocus Desktop）
 
 一款 **本机运行的 Windows 桌面专注计时工具**，面向容易分心、启动困难的人：把"想做的事"拆成小步、计时、更易开始，也更易在中断后接上。
 
 - **不是联网服务**：所有业务数据存在本机 `data.xml`，不上云、不依赖账号。
 - **两个可选外部依赖**：①可替换的 AI 接口（任务拆解 / 鼓励）；②可选的 WebDAV 同步（多设备共享同一份数据）。两者都**失败不连累主功能**（fail-open）。
-- **当前版本**：v2.0.11（见 `scripts/build.ps1` 输出名）。
+- **当前版本**：v2.0.12（见 `scripts/build.ps1` 输出名）。
 
 ---
 
@@ -43,7 +43,7 @@ FocusStation/
 需要 Windows + .NET Framework 4.x（构建脚本会自动探测 `csc.exe`）。
 
 ```powershell
-# 编译（产物输出到仓库外的 I:\AIstore\专注小站-v2.0.11.exe）
+# 编译（产物输出到仓库外的 I:\AIstore\专注小站-v2.0.12.exe）
 powershell -File scripts/build.ps1
 
 # 运行全部测试（逻辑单测 + 界面测试版 + 界面单测，产物在仓库外的 work/）
