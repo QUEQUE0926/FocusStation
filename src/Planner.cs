@@ -56,13 +56,12 @@ namespace LittleFocus {
    try{var text=(content??"").Trim();int first=text.IndexOf('{'),last=text.LastIndexOf('}');if(first<0||last<=first)throw new InvalidDataException();text=text.Substring(first,last-first+1);var raw=new JavaScriptSerializer{MaxJsonLength=100000,RecursionLimit=16}.DeserializeObject(text) as Dictionary<string,object>;if(raw==null)throw new InvalidDataException();Func<string,string> get=k=>{object v;return raw.TryGetValue(k,out v)&&v is string?(string)v:"";};var f=new FreshContent{Kind="personalized",Title=get("title"),Body=get("body"),SourceUrl=get("sourceUrl")};if(String.IsNullOrWhiteSpace(f.Title)||String.IsNullOrWhiteSpace(f.Body))throw new InvalidDataException();int limit=Math.Max(100,Math.Min(2000,maxChars));if(f.Body.Length>limit)f.Body=f.Body.Substring(0,limit)+"…";if(!String.IsNullOrWhiteSpace(f.SourceUrl)){Uri u;if(!Uri.TryCreate(f.SourceUrl,UriKind.Absolute,out u)||(u.Scheme!="https"&&u.Scheme!="http"))f.SourceUrl="";}return f;}catch(Exception ex){if(ex is OperationCanceledException)throw;throw new InvalidDataException("个性化内容格式不完整，请重试。计时仍保持暂停。");}
   }
   public static async Task<FreshContent> Fresh(ApiConfig config,string topic,int maxChars,string projectName,CancellationToken cancel){return ParseFresh(await ChatText(config,FreshPayload(config,topic,maxChars,projectName),cancel),maxChars);}
-  public static List<Stage> Writing(){return new List<Stage>{
-   new Stage{Remaining=100,Title="想切入点",Action="确定读者、要回答的问题，写下一句核心观点。"},
-   new Stage{Remaining=90,Title="写标题",Action="写 3 个候选标题，先选一个可用的，不追求完美。"},
-   new Stage{Remaining=80,Title="列大纲",Action="写出开头、3 个主要观点和结尾，每部分留一句提示。"},
-   new Stage{Remaining=70,Title="写正文",Action="沿着大纲先写完初稿。卡住的地方做标记，继续向前。"},
-   new Stage{Remaining=20,Title="配图与检查",Action="选择配图，核对标题和重点，完成一次通读。"},
-   new Stage{Remaining=15,Title="做封面",Action="配合文章风格即可。"}};}
+  // v2.0.15：内置模板换成「测评模板」，4 步、总时长 240 分钟（100→80→45→20 对应 48/84/60/48 分钟）。
+  public static List<Stage> Review(){return new List<Stage>{
+   new Stage{Remaining=100,Title="梳理测评框架",Action="列出游戏核心机制、优缺点、适用人群三部分大纲，每部分3-5点，写完即止。"},
+   new Stage{Remaining=80,Title="写正文初稿",Action="按框架写完整测评，不修改不查资料，一次写到结尾。完成标准：全文覆盖所有大纲点。"},
+   new Stage{Remaining=45,Title="润色与配图",Action="通读初稿改错字与不通顺处，并选2-3张配图。完成标准：无错字且配图到位。"},
+   new Stage{Remaining=20,Title="做封面并定稿",Action="做一张封面图，检查全文格式与信息。完成标准：封面生成且全文可发布。"}};}
   public static string Validate(List<Stage> stages){
    if(stages==null || stages.Count<1 || stages.Count>20)return "请设置 1–20 个子任务。";
    if(stages[0].Remaining!=100)return "第一个子任务从剩余 100%（开始时）起步。";

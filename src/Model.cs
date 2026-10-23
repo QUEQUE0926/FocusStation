@@ -54,13 +54,19 @@ namespace LittleFocus {
   public override string ToString(){return Name;}
  }
  public static class TemplateLibrary {
-  public static StageTemplate Writing(){return new StageTemplate{Name="写稿",Stages=Planner.Writing()};}
-  public static List<StageTemplate> Defaults(){return new List<StageTemplate>{Writing()};}
+  public const string DefaultName="测评模板";
+  public const string LegacyName="写稿";
+  // v2.0.14 及以前内置的 6 步「写稿」模板，用来辨认用户有没有自己改过。
+  static readonly string[] LegacyTitles={"想切入点","写标题","列大纲","写正文","配图与检查","做封面"};
+  public static StageTemplate Review(){return new StageTemplate{Name=DefaultName,Stages=Planner.Review()};}
+  public static List<StageTemplate> Defaults(){return new List<StageTemplate>{Review()};}
   // 载入项目时按模板复制一份，改项目里的子任务不会反过来改掉模板。
   public static List<Stage> Clone(IEnumerable<Stage> stages){return (stages??new List<Stage>()).Where(s=>s!=null).Select(s=>new Stage{Id=Guid.NewGuid().ToString("N"),Remaining=s.Remaining,Title=s.Title,Action=s.Action}).ToList();}
   // 保存模板时把不合法的百分比序列摊平成等差序列，免得用户被“百分比必须递减”卡住。
   public static void Normalize(List<Stage> stages){if(stages==null||stages.Count==0)return;int count=stages.Count;bool previousOk=true;for(int i=0;i<count;i++){var s=stages[i];if(s.Remaining<1||s.Remaining>100){previousOk=false;break;}if(i>0&&s.Remaining>=stages[i-1].Remaining){previousOk=false;break;}}if(previousOk&&stages[0].Remaining==100)return;for(int i=0;i<count;i++)stages[i].Remaining=count==1?100:Math.Max(1,100-(int)Math.Floor(90.0*i/Math.Max(1,count-1)));}
-  public static void Ensure(AppData data){if(data==null)return;if(data.Templates==null)data.Templates=new List<StageTemplate>();data.Templates.RemoveAll(t=>t==null);if(!data.TemplatesSeeded){data.TemplatesSeeded=true;if(data.Templates.Count==0)data.Templates.AddRange(Defaults());}foreach(var t in data.Templates){t.Name=(t.Name??"").Trim();if(t.Stages==null)t.Stages=new List<Stage>();t.Stages.RemoveAll(s=>s==null);}}
+  public static void Ensure(AppData data){if(data==null)return;if(data.Templates==null)data.Templates=new List<StageTemplate>();data.Templates.RemoveAll(t=>t==null);if(!data.TemplatesSeeded){data.TemplatesSeeded=true;if(data.Templates.Count==0)data.Templates.AddRange(Defaults());}Migrate(data);foreach(var t in data.Templates){t.Name=(t.Name??"").Trim();if(t.Stages==null)t.Stages=new List<Stage>();t.Stages.RemoveAll(s=>s==null);}}
+  // v2.0.15：把没被用户改过的内置 6 步「写稿」换成 4 步「测评模板」。用户自己动过的模板保持原样。
+  static void Migrate(AppData data){if(data.TemplateRevision>=2)return;data.TemplateRevision=2;var legacy=data.Templates.FirstOrDefault(t=>t!=null&&t.Name==LegacyName&&t.Stages!=null&&t.Stages.Count==LegacyTitles.Length&&t.Stages.All(s=>s!=null&&s.Title!=null)&&t.Stages.Select(s=>s.Title).SequenceEqual(LegacyTitles));if(legacy==null)return;legacy.Name=DefaultName;legacy.Stages=Planner.Review();}
  }
  public class BreakIdea {
   public string Id=Guid.NewGuid().ToString("N");
@@ -125,6 +131,7 @@ namespace LittleFocus {
   // 注意：这里必须留空列表。XmlSerializer 对集合是「往已有列表里 Add」，若用初始化器预置默认模板，每次读盘都会重复一份。
   public List<StageTemplate> Templates = new List<StageTemplate>();
   public bool TemplatesSeeded;
+  public int TemplateRevision;
   public List<BreakIdea> Ideas = new List<BreakIdea>();
   public List<TimeRecord> Records = new List<TimeRecord>();
   public List<ChallengeAdjustment> ChallengeAdjustments=new List<ChallengeAdjustment>();
@@ -138,6 +145,9 @@ namespace LittleFocus {
   public static void Migrate(AppData data){if(data.AiPreferencesRevision<1){data.AutoResumeSuggestions=false;data.AiPreferencesRevision=1;}if(String.IsNullOrWhiteSpace(data.EncouragementPersona)||data.EncouragementPersona=="温和、克制的陪伴者；具体认可投入，不催促、不夸大。")data.EncouragementPersona=Persona;if(String.IsNullOrWhiteSpace(data.EncouragementPrompt)||data.EncouragementPrompt=="用温和、具体的中文鼓励我，认可已经投入的时间，不催促、不比较。最多三句话。")data.EncouragementPrompt=Prompt;if(String.IsNullOrWhiteSpace(data.SelfReviewPrompt))data.SelfReviewPrompt="结合项目名、子任务、实际用时和用户填写的理由，寻找重复出现的启动困难、时间估计偏差和顺利推进条件。优先采用跨多次记录的证据；每条规律给出适用场景、记录依据和一个下次可直接采用的小调整。不诊断人格，不把单次状态当成稳定能力。";if(data.DefaultProjectMinutes<1)data.DefaultProjectMinutes=25;if(data.DistractionTopic=="随机十万个为什么或英文新闻"){data.DistractionTopic="根据我的兴趣，给一条轻松、有用的中文内容";data.LastFresh=null;data.LastFreshProjectId="";}}
  }
  public static class TaskSupport {
+  // v2.0.15：新建任务的默认标题，尖括号里是提示用户替换的部分。
+  public const string NewProjectName="游戏测评：《请输入游戏名字》";
+  public const string NewProjectPlaceholder="《请输入游戏名字》";
   public static int StageSeconds(Project p,Stage stage,AppData data){if(p==null||stage==null||p.Stages==null)return 0;if(stage.AllocatedSeconds>0)return stage.AllocatedSeconds;int i=p.Stages.IndexOf(stage);if(i<0)return 0;int next=i+1<p.Stages.Count?p.Stages[i+1].Remaining:0;int total=p.Challenge?p.ChallengeMinutes:(p.PomodoroMinutes>0?p.PomodoroMinutes:(data==null?25:data.FocusMinutes));return Math.Max(0,(int)Math.Round(total*60*Math.Max(0,stage.Remaining-next)/100.0));}
   // 项目总时长（设计口径）：挑战模式取挑战分钟数，否则取项目番茄分钟数，未设置时回落到全局默认番茄钟。
   public static int ProjectTotalSeconds(Project p,AppData data){if(p==null)return 0;int minutes=p.Challenge?p.ChallengeMinutes:(p.PomodoroMinutes>0?p.PomodoroMinutes:(data==null?25:data.FocusMinutes));return Math.Max(0,minutes*60);}

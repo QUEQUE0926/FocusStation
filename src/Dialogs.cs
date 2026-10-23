@@ -200,8 +200,12 @@ namespace LittleFocus {
   // v2.0.14：模板按钮（单击出下拉、长按改模板）
   List<StageTemplate> templates;Button templateButton;ContextMenuStrip templateMenu;System.Windows.Forms.Timer templateHold;bool templateHolding;DateTime templateClickBlockedUntil;readonly Action persist;
     public ProjectDialog(Project project,ApiConfig config,string dataDirectory,AppData data=null,Action persistData=null){
-     original=project;api=config;directory=dataDirectory;appData=data;persist=persistData;templates=data!=null&&data.Templates!=null&&data.Templates.Count>0?data.Templates:TemplateLibrary.Defaults();if(String.IsNullOrWhiteSpace(project.Name)&&data!=null){project.AllowDistraction=data.DefaultAllowDistraction;project.Challenge=data.DefaultProjectChallenge;project.ChallengeMinutes=Math.Max(1,data.FocusMinutes);project.ChallengeMinutesCustomized=false;project.PomodoroMinutes=0;}source=project.PlanSource;
-   UI.FormStyle(this,project.Name==""?"新建任务":"编辑任务",900,710);Padding=new Padding(20);
+     original=project;api=config;directory=dataDirectory;appData=data;persist=persistData;templates=data!=null&&data.Templates!=null&&data.Templates.Count>0?data.Templates:TemplateLibrary.Defaults();
+     // v2.0.15：新建任务默认叫「游戏测评：《请输入游戏名字》」，并自动套用「测评模板」。
+     bool isNew=String.IsNullOrWhiteSpace(project.Name);
+     if(isNew&&data!=null){project.AllowDistraction=data.DefaultAllowDistraction;project.Challenge=data.DefaultProjectChallenge;project.ChallengeMinutes=Math.Max(1,data.FocusMinutes);project.ChallengeMinutesCustomized=false;project.PomodoroMinutes=0;}
+     if(isNew){project.Name=TaskSupport.NewProjectName;var seed=templates.FirstOrDefault(t=>t.Name==TemplateLibrary.DefaultName&&t.Stages.Count>0)??templates.FirstOrDefault(t=>t.Stages.Count>0);if(seed!=null)project.Stages=TemplateLibrary.Clone(seed.Stages);}source=project.PlanSource;
+   UI.FormStyle(this,isNew?"新建任务":"编辑任务",900,710);Padding=new Padding(20);
    var root=UI.Table(1,42,38,28,76,46,-100,48,54);
    root.Controls.Add(UI.Label("只需要写下，你想做什么。",16,true),0,0);name=UI.TextBox();name.MaxLength=100;name.Text=project.Name;root.Controls.Add(name,0,1);
    root.Controls.Add(UI.Label("任务描述 / 目标成果（AI 将根据这里拆解）",9),0,2);description=UI.TextBox(true);description.MaxLength=4000;description.Text=project.NextStep;root.Controls.Add(description,0,3);
@@ -222,7 +226,7 @@ namespace LittleFocus {
    grid.MouseMove+=(s,e)=>{if(dragRow>=0&&e.Button==MouseButtons.Left&&(DateTime.UtcNow-dragStarted).TotalMilliseconds>=350&&(Math.Abs(e.X-dragPoint.X)+Math.Abs(e.Y-dragPoint.Y)>5)){grid.EndEdit();int row=dragRow;dragRow=-1;grid.DoDragDrop(new StageDrag{Owner=this,Index=row},DragDropEffects.Move);}};
    grid.MouseUp+=(s,e)=>dragRow=-1;grid.DragOver+=(s,e)=>{var move=e.Data.GetData(typeof(StageDrag)) as StageDrag;e.Effect=move!=null&&move.Owner==this?DragDropEffects.Move:DragDropEffects.None;var pt=grid.PointToClient(new Point(e.X,e.Y));if(grid.Rows.Count>0&&pt.Y<30&&grid.FirstDisplayedScrollingRowIndex>0)grid.FirstDisplayedScrollingRowIndex--;else if(pt.Y>grid.Height-25&&grid.FirstDisplayedScrollingRowIndex<grid.Rows.Count-1)grid.FirstDisplayedScrollingRowIndex++;};
    grid.DragDrop+=(s,e)=>{var move=e.Data.GetData(typeof(StageDrag)) as StageDrag;if(move==null||move.Owner!=this)return;var pt=grid.PointToClient(new Point(e.X,e.Y));int target=grid.HitTest(pt.X,pt.Y).RowIndex;if(target<0)target=grid.Rows.Count-1;MoveStageTo(move.Index,target);};
-   Shown+=(s,e)=>{grid.CurrentCell=null;grid.ClearSelection();removeStage.Enabled=false;name.Focus();name.Select(0,0);};
+   Shown+=(s,e)=>{grid.CurrentCell=null;grid.ClearSelection();removeStage.Enabled=false;name.Focus();if(isNew&&name.Text==TaskSupport.NewProjectName){int at=name.Text.IndexOf(TaskSupport.NewProjectPlaceholder);if(at>=0)name.Select(at,TaskSupport.NewProjectPlaceholder.Length);else name.Select(0,0);}else name.Select(0,0);};
    var context=new ContextMenuStrip();context.Items.Add("上移子任务",null,(s,e)=>MoveStage(-1));context.Items.Add("下移子任务",null,(s,e)=>MoveStage(1));grid.ContextMenuStrip=context;
    status=UI.Label("保存仅写入本地，不调用 API。只有点击“AI 拆解”才请求模型；已有步骤会保留。",9);status.AutoEllipsis=false;status.ForeColor=UI.Muted;root.Controls.Add(status,0,6);
    save=UI.Button("保存任务",()=>SaveTask(),true);bottom=UI.Flow(save,UI.Button("取消",()=>Close()));root.Controls.Add(bottom,0,7);Controls.Add(root);
