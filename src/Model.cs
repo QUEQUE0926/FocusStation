@@ -248,7 +248,8 @@ namespace LittleFocus {
     double seconds=(now-LastUtc).TotalSeconds;
     if(seconds>120) { State=Phase.Paused;LastUtc=now;Log("signal","interrupted");return "interrupted"; }
     DateTime countedUntil=now;
-    // v2.0.16：不再在到点时把计时卡住。用户不点「开始休息」就一直算下去。
+    // v2.0.17：复原 v2.0.14 的休息逻辑——到点就把计时卡在这一点，多出来的时间不计入。
+    if(!IsChallenge&&!ReminderSent&&seconds>Math.Max(0,NextReminderSeconds-RunSeconds)){seconds=Math.Max(0,NextReminderSeconds-RunSeconds);countedUntil=LastUtc.AddSeconds(seconds);}
     double limit=IsChallenge&&InOvertime?OvertimeStartRunSeconds+OvertimeSeconds:ChallengeBaseMinutes*60+ChallengeShiftSeconds-ChallengeStartOffsetSeconds;if(IsChallenge&&seconds>Math.Max(0,limit-RunSeconds)){seconds=Math.Max(0,limit-RunSeconds);countedUntil=LastUtc.AddTicks((long)Math.Round(seconds*TimeSpan.TicksPerSecond));}
     if(seconds>0) { AddSpan(LastUtc,countedUntil);RunSeconds+=seconds; }
     LastUtc=now;
@@ -256,11 +257,11 @@ namespace LittleFocus {
       double logical=ChallengeStartOffsetSeconds+RunSeconds;Reached.Clear();if(!InOvertime){while(stageIndex<Plan.Count){if(Plan[stageIndex].Done){stageIndex++;continue;}double boundary=Plan.Take(stageIndex+1).Sum(s=>TaskSupport.StageSeconds(Current,s,Data))+ChallengeShiftSeconds;if(logical<boundary)break;Reached.Add(Plan[stageIndex++]);}}
      if(RunSeconds>=limit){if(InOvertime)CommitOvertime();ChallengeAtDeadline=true;State=Phase.Paused;return "challenge-end";}
      if(Reached.Count>0){Log("signal","stage",Reached[Reached.Count-1].Title);State=Phase.Paused;return "stage";}
-     // v2.0.16：挑战里的「连续专注 N 分钟」不再暂停计时、不再弹窗，休息只能由用户点按钮触发。
-     return null;
+     // v2.0.17：复原——挑战模式每隔一个番茄钟暂停一次并提醒休息，是否继续由用户决定。
+     if(RunSeconds>=NextBreakReminderSeconds){State=Phase.Paused;return "challenge-break";}return null;
     }
-    // v2.0.16：到点只发一个安静的提示，永不自动暂停、永不自动进入休息。
-    if(!ReminderSent && RunSeconds>=NextReminderSeconds) { ReminderSent=true;return "due-soft"; }
+    // v2.0.17：复原——到点暂停计时并弹窗确认，不点「开始休息」就永远不会休息。
+    if(!ReminderSent && RunSeconds>=NextReminderSeconds) { ReminderSent=true;State=Phase.Paused;return "due"; }
    } else if(State==Phase.Break && now>=BreakUntil) { State=Phase.Ready;return "break-end"; }
    return null;
   }
@@ -286,9 +287,6 @@ namespace LittleFocus {
   public Stage CurrentStage(){return Current==null?null:Current.Stages.FirstOrDefault(s=>!s.Done);}
   double InitialStageSeconds(){var stage=CurrentStage();int value=TaskSupport.StageSeconds(Current,stage,Data);return value>0?value:GoalMinutes*60;}
   public double StageRemaining(){if(!IsChallenge)return Math.Max(0,NextReminderSeconds-RunSeconds);if(InOvertime)return Math.Max(0,OvertimeStartRunSeconds+OvertimeSeconds-RunSeconds);var stage=CurrentStage();if(stage==null)return ChallengeTotalRemaining();int i=Current.Stages.IndexOf(stage);double end=Current.Stages.Take(i+1).Sum(s=>TaskSupport.StageSeconds(Current,s,Data))+ChallengeShiftSeconds-ChallengeStartOffsetSeconds;return Math.Max(0,end-RunSeconds);}
-  // v2.0.16：番茄钟到点后继续计时，这里给出「已经超出计划多久」和「是否已到休息时间」。
-  public double StageOvertimeSeconds{get{return !IsChallenge&&ReminderSent?Math.Max(0,RunSeconds-NextReminderSeconds):0;}}
-  public bool RestDue{get{return !IsChallenge&&ReminderSent;}}
   public void RefreshStageDeadline(){if(IsChallenge||Current==null)return;ReminderSent=false;NextReminderSeconds=RunSeconds+InitialStageSeconds();}
   public double PlannedStageRemaining(Stage stage){if(!IsChallenge||stage==null)return 0;if(InOvertime)return StageRemaining();int i=Current.Stages.IndexOf(stage);if(i<0)return 0;return Math.Max(0,Current.Stages.Take(i+1).Sum(s=>TaskSupport.StageSeconds(Current,s,Data))+ChallengeShiftSeconds-ChallengeStartOffsetSeconds-RunSeconds);}
   public bool AddChallengeTime(int minutes){if(!IsChallenge||minutes<1||CurrentStage()==null||CurrentStage().Done)return false;OvertimeRequests++;OvertimeStartRunSeconds=RunSeconds;OvertimeSeconds=minutes*60;ChallengeAtDeadline=false;LastUtc=DateTime.UtcNow;Log("signal","overtime",minutes+" 分钟");return true;}
