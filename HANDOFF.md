@@ -1,7 +1,7 @@
-# HANDOFF.md — FocusStation 交接文档
+﻿# HANDOFF.md — FocusStation 交接文档
 
 > 给**完全没有上下文的新会话**看。下次开新会话，第一句话就应该是「先读 HANDOFF.md」。
-> 本文件最后更新：2026-10-23（v2.0.15 完成并合并 main；推送仍被网络阻塞，见 REVIEW_REQUEST.md）。
+> 本文件最后更新：2026-10-24（v2.0.16 完成，main/dev 均已推送 GitHub）。
 
 ---
 
@@ -9,16 +9,16 @@
 
 FocusStation（专注小站）是一个 **Windows 桌面专注计时工具**（C# / .NET Framework 4.x，单文件 winexe，用 `csc.exe` 直接编译，无 csproj/sln）。本项目当前主线任务是**按腾讯文档《专注小站迭代log》逐版本修用户反馈**。
 
-当前版本：**v2.0.15**（已合并 main；**尚未推送**，github.com:443 不可达）。2026-10-23 这一天连做四版：v2.0.12（今日专注后加括号）、v2.0.13（无记录项目也显示）、v2.0.14（把括号里的数改成真实累计专注 + 模板按钮改造）、v2.0.15（内置模板换成 4 步「测评模板」+ 新建任务默认套用）。
+当前版本：**v2.0.16**（已合并 main 并推送）。2026-10-24 做了 v2.0.16 两条：已完成列表按完成时间排序、休息改成纯手动。2026-10-23 连做四版：v2.0.12（今日专注后加括号）、v2.0.13（无记录项目也显示）、v2.0.14（把括号里的数改成真实累计专注 + 模板按钮改造）、v2.0.15（内置模板换成 4 步「测评模板」+ 新建任务默认套用）。
 
 ---
 
 ## 1. 我们在做什么任务
 
-迭代闭环：读腾讯文档的「专注小站迭代log」→ 按版本号（v2.0.5…v2.0.12）挑出「未修复」的反馈 → 改代码 → dev 跑 `scripts/test.ps1` 冒烟 → 合并 main → 生成带版本号的 EXE（`scripts/build.ps1`）。
+迭代闭环：读腾讯文档的「专注小站迭代log」→ 按版本号（v2.0.5…v2.0.16）挑出「未修复」的反馈 → 改代码 → dev 跑 `scripts/test.ps1` 冒烟 → 合并 main → 生成带版本号的 EXE（`scripts/build.ps1`）。
 
 **腾讯文档入口（必须用这个工具读，不能用网页 fetch）：**
-- 文档：`https://docs.qq.com/sheet/DQm9XYWxSQm5yYWNs?tab=o3ho1a`（v2.0.12 页；v2.0.11 页 tab=`nn5rmn`）
+- 文档：`https://docs.qq.com/sheet/DQm9XYWxSQm5yYWNs`（各版本一个子表：v2.0.16 页 tab=`7mnnto`、v2.0.12 页 `o3ho1a`、v2.0.11 页 `nn5rmn`）
 - 工具：`tencent-docs` skill 的 `tencentdocs.py tdoc_call tencent-docs get_content '{"file_id":"DQm9XYWxSQm5yYWNs"}'`。
 - **一次 get_content 返回整本表所有子表的文字**（含历史页），按 `|v2.0.12` 这样的行头切段即可。
 - 连接器状态若是 `auth-required`，先用 `reconnect_plugin`（pluginName=`tencent-docs@workbuddy-connector-plugins-official`）重新授权，成功后再 `tdoc_init`（应回 `READY`）。
@@ -65,34 +65,51 @@ FocusStation（专注小站）是一个 **Windows 桌面专注计时工具**（C
   - 实现：`TaskSupport.NewProjectName` / `NewProjectPlaceholder` 两个常量；`ProjectDialog` 构造函数里用 `String.IsNullOrWhiteSpace(project.Name)` 判断「新建」（和原有默认计时方式、默认挑战开关同一处判断），预填名字并把模板 4 步深拷贝进 `project.Stages`。
   - 细节：弹窗打开时只选中 `《请输入游戏名字》` 这一段，直接打字即替换，免得用户手动删；模板被删光时保持空白不崩。
 
+### 2.1e v2.0.16 两条反馈（版本 v2.0.16）
+- **① 已完成的项目按完成时间排序**
+  - 原文：已完成的项目排序，可以按照完成时间点最近来排序，保证排在前面的都是最近完成的。
+  - `Project` 新增 `CompletedUtc`，`FocusEngine.Complete()` 写入；`MainForm.CompletionTime()` 在旧数据缺这个字段时回落到 `UpdatedUtc`。
+  - `RefreshProjects()`：已完成视图 `OrderByDescending(CompletionTime).ThenBy(Name)`；进行中视图仍是「置顶 + 手动拖动排序」。
+  - 已完成视图**不再参与长按拖动排序**（顺序由完成时间决定），`reorderTimer` 里直接跳过。`RestoreTask()` 会把 `CompletedUtc` 清掉。
+- **② 休息改成纯手动（不点就永远不休息）**
+  - 原文：它应该是左边的这样，只要我不点休息，就永远不会休息。
+  - **重要事实**：拆包核对了 `artifacts/` 里 v2.0.10–v2.0.15 全部 12 个 EXE，休息相关文案（到休息时间了 / 休息提醒 / 开始休息 / 继续专注 5 分钟 / 结束本次 / 保持暂停 / 继续挑战）**逐个一致**——休息模块此前从未被改过。所以这条按「用户要的行为」改，不是回滚。
+  - `FocusEngine.Tick()`：番茄钟到点从 `State=Phase.Paused; return "due"` 改成 **只 `return "due-soft"`**，状态仍是 `Focus`；同时删掉「到点把计时夹住」的那段 clamp，超时时间照常计入记录。
+  - 挑战模式：删掉 `if(RunSeconds>=NextBreakReminderSeconds){State=Paused; return "challenge-break";}` —— 不再因为「连续专注 N 分钟」暂停/弹窗。
+  - `MainForm.HandleEvent("due-soft")`：只响一次提示音（受 `data.Sound` 控制）+ 状态栏一行字，**不弹窗**。旧的 `due` / `challenge-break` 弹窗分支已删除。
+  - `RefreshDisplay()`：到点后大数字变成 `超时 MM:SS`，阶段文案 `已到休息时间 · 随时可以休息`，说明行写明「已超过计划 X，计时继续；点『开始休息』才休息」。
+  - `FocusEngine.RestDue` / `StageOvertimeSeconds` 两个只读属性给 UI 用；`PauseResume()` 里那句 `Snooze()` 已去掉（没有弹窗就不需要「5 分钟后再提醒」）。
+  - 进入休息的唯一入口仍是「开始休息」按钮（主界面 / 迷你条）→ 不点就永远不休息。
+
 ### 2.2 测试
-- `scripts/test.ps1` 全绿：逻辑单测 **178 断言** + 界面单测（含渲染截图）通过。
+- `scripts/test.ps1` 全绿：逻辑单测 **179 断言** + 界面单测（含渲染截图）通过。
+- v2.0.16 新增断言：到点只返回 `due-soft`、状态仍是 `Focus`、超时继续计时并照样记入记录；挑战模式不再为休息提醒暂停；已完成列表按 `CompletedUtc` 倒序；缺 `CompletedUtc` 的老数据按 `UpdatedUtc` 兜底；到点不再弹窗（`Field(form,"notice")==null`）。
 - v2.0.15 新增断言：内置模板是 4 步且百分比 100/80/45/20；旧 6 步「写稿」自动迁移成 4 步「测评模板」且 `TemplateRevision==2`；用户改过的模板保持原样；新建弹窗标题预填、自动带 4 步子任务、模板名与步骤名逐个核对。
 - 顺手把三条与模板内容强绑定的老测试解耦（计时节点测试、5 行布局测试、保存测试），以后改模板内容不会再连带炸测试。
 
 ### 2.3 版本与构建
-- 版本号 v2.0.12 → v2.0.13 → v2.0.14 → **v2.0.15**（已同步 `scripts/build.ps1`、`README.md`、`docs/分支与发布流程.md`、`docs/CHANGELOG.md`）。
-- 产物：`artifacts/FocusStation-v2.0.15.exe`（main，无 DEV 宏）、`artifacts/FocusStation-v2.0.15-dev.exe`。
+- 版本号 v2.0.12 → v2.0.13 → v2.0.14 → v2.0.15 → **v2.0.16**（已同步 `scripts/build.ps1`、`README.md`、`docs/分支与发布流程.md`、`docs/CHANGELOG.md`）。
+- 产物：`artifacts/FocusStation-v2.0.16.exe`（main，无 DEV 宏）、`artifacts/FocusStation-v2.0.16-dev.exe`。
 
 ### 2.4 git
-- 提交：`f8fd4e6`（v2.0.15）→ `c6024c1`（v2.0.14）→ `e2a2963`（文档）→ `9384644`（v2.0.13）→ `1b08460` → `b59515a`（v2.0.12）→ `e5fb068` → `c14ccca`。
-- 已推送的最后一个提交是 `1b08460`；`9384644`、`e2a2963`、`c6024c1`、`f8fd4e6` **只在本地**（github.com:443 不可达）。
+- 提交：`89f7844`（v2.0.16）→ `f8fd4e6`（v2.0.15）→ `c6024c1`（v2.0.14）→ `e2a2963`（文档）→ `9384644`（v2.0.13）→ `1b08460` → `b59515a`（v2.0.12）→ `e5fb068` → `c14ccca`。
+- **2026-10-24 已全部推送成功**：`1b08460..89f7844  dev -> dev` / `main -> main`（v2.0.13、v2.0.14、v2.0.15、v2.0.16 一并上去了）。
 
 ---
 
 ## 3. 当前卡点 / 待定（需要用户拍板或信息）
 
-1. **4 个提交没推上 GitHub**：`9384644` / `e2a2963` / `c6024c1` / `f8fd4e6`。`api.github.com` 正常但 `github.com:443` 连不上（代理 7890 也没开）。网络恢复后一条命令补推，命令在 `REVIEW_REQUEST.md` 顶部。
-2. **腾讯文档状态未更新**：v2.0.12 第 1 条已被用户标「已修复」；v2.0.13 第 2 条、v2.0.14 两条、v2.0.15 两条都还没标。没擅自改表格，等用户定。
-3. **旧版 EXE 未清理**：`artifacts/` 里有 v2.0.10 / 11 / 12 / 13 / 14 的旧包，不会自动删。
+1. **腾讯文档状态未更新**：v2.0.12 第 1 条已被用户标「已修复」；v2.0.13 第 2 条、v2.0.14 两条、v2.0.15 两条、v2.0.16 两条都还没标。没擅自改表格，等用户定。
+2. **休息模块是「按需求改的新行为」，不是回滚**：v2.0.16 改掉了「到点暂停 + 弹窗」。如果用户其实想保留到点暂停、只是不要弹窗，把 `Tick()` 里 `due-soft` 那行改回 `State=Phase.Paused; return "due";` 并恢复 `HandleEvent` 的 `due` 分支即可（约 10 行）。
+3. **旧版 EXE 未清理**：`artifacts/` 里留着 v2.0.10–v2.0.15 的旧包，不会自动删。
 4. **v2.0.11 问题② 配图格式**仍未获用户确认（当时按推断实现）。
 
 ---
 
 ## 4. 下一步计划
 
-- 网络恢复后先补推这 4 个提交（`git push` 用 REVIEW_REQUEST 顶部那条带令牌 URL 的命令）。
-- 等下一版（v2.0.16）反馈；开工前始终确认自己在 `dev` 分支，走「test → 提 dev → 合并 main → build 生成 EXE → push」流程。
+- 等下一版（v2.0.17）反馈；开工前始终确认自己在 `dev` 分支，走「test → 提 dev → 合并 main → build 生成 EXE → push」流程。
+- 推送现在正常（2026-10-24 直推令牌 URL 成功，网络已恢复）。
 - 若用户要清旧包 / 改文档状态，分别单独确认后再动。
 
 ---
@@ -139,7 +156,7 @@ FocusStation（专注小站）是一个 **Windows 桌面专注计时工具**（C
 |---|---|
 | `src/Dialogs.cs` | 任务/子任务编辑弹窗；`AddStage()` 加子任务逻辑在这里 |
 | `src/MainForm.cs` | 主窗口；任务列表 `projects`、`RefreshDisplay()`、`TodayLine()`（今日已专注文案） |
-| `src/Planner.cs` | `Writing()` 写稿模板（手调百分比序列 100/90/80/65/20） |
+| `src/Planner.cs` | `Review()` 测评模板（4 步，剩余 % 100/80/45/20）；`Writing()` 已在 v2.0.15 删除 |
 | `src/Model.cs` | 数据模型 `Project` / `AppData` / `Store`（注意 Store 非 IDisposable）；`TaskSupport` 工具方法 |
 | `src/UiTests.cs` | 界面自动化测试（跑真实 WinForms，需 Windows） |
 | `src/Tests.cs` | 纯逻辑单测 |
