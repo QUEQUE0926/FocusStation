@@ -1,7 +1,7 @@
 ﻿# HANDOFF.md — FocusStation 交接文档
 
 > 给**完全没有上下文的新会话**看。下次开新会话，第一句话就应该是「先读 HANDOFF.md」。
-> 本文件最后更新：2026-10-24（v2.0.16 完成，main/dev 均已推送 GitHub）。
+> 本文件最后更新：2026-10-24（v2.0.17 复原休息模块，main/dev 均已推送 GitHub）。
 
 ---
 
@@ -9,7 +9,7 @@
 
 FocusStation（专注小站）是一个 **Windows 桌面专注计时工具**（C# / .NET Framework 4.x，单文件 winexe，用 `csc.exe` 直接编译，无 csproj/sln）。本项目当前主线任务是**按腾讯文档《专注小站迭代log》逐版本修用户反馈**。
 
-当前版本：**v2.0.16**（已合并 main 并推送）。2026-10-24 做了 v2.0.16 两条：已完成列表按完成时间排序、休息改成纯手动。2026-10-23 连做四版：v2.0.12（今日专注后加括号）、v2.0.13（无记录项目也显示）、v2.0.14（把括号里的数改成真实累计专注 + 模板按钮改造）、v2.0.15（内置模板换成 4 步「测评模板」+ 新建任务默认套用）。
+当前版本：**v2.0.17**。2026-10-24 当天做了两版：v2.0.16 是「已完成按完成时间排序 + 休息改纯手动」，其中休息那条**方向理解错了**，所以紧接着 v2.0.17 把休息模块**原样复原到 v2.0.14 的行为**（只保留排序那条）。2026-10-23 连做四版：v2.0.12（今日专注后加括号）、v2.0.13（无记录项目也显示）、v2.0.14（把括号里的数改成真实累计专注 + 模板按钮改造）、v2.0.15（内置模板换成 4 步「测评模板」+ 新建任务默认套用）。
 
 ---
 
@@ -71,36 +71,40 @@ FocusStation（专注小站）是一个 **Windows 桌面专注计时工具**（C
   - `Project` 新增 `CompletedUtc`，`FocusEngine.Complete()` 写入；`MainForm.CompletionTime()` 在旧数据缺这个字段时回落到 `UpdatedUtc`。
   - `RefreshProjects()`：已完成视图 `OrderByDescending(CompletionTime).ThenBy(Name)`；进行中视图仍是「置顶 + 手动拖动排序」。
   - 已完成视图**不再参与长按拖动排序**（顺序由完成时间决定），`reorderTimer` 里直接跳过。`RestoreTask()` 会把 `CompletedUtc` 清掉。
-- **② 休息改成纯手动（不点就永远不休息）**
-  - 原文：它应该是左边的这样，只要我不点休息，就永远不会休息。
-  - **重要事实**：拆包核对了 `artifacts/` 里 v2.0.10–v2.0.15 全部 12 个 EXE，休息相关文案（到休息时间了 / 休息提醒 / 开始休息 / 继续专注 5 分钟 / 结束本次 / 保持暂停 / 继续挑战）**逐个一致**——休息模块此前从未被改过。所以这条按「用户要的行为」改，不是回滚。
-  - `FocusEngine.Tick()`：番茄钟到点从 `State=Phase.Paused; return "due"` 改成 **只 `return "due-soft"`**，状态仍是 `Focus`；同时删掉「到点把计时夹住」的那段 clamp，超时时间照常计入记录。
-  - 挑战模式：删掉 `if(RunSeconds>=NextBreakReminderSeconds){State=Paused; return "challenge-break";}` —— 不再因为「连续专注 N 分钟」暂停/弹窗。
-  - `MainForm.HandleEvent("due-soft")`：只响一次提示音（受 `data.Sound` 控制）+ 状态栏一行字，**不弹窗**。旧的 `due` / `challenge-break` 弹窗分支已删除。
-  - `RefreshDisplay()`：到点后大数字变成 `超时 MM:SS`，阶段文案 `已到休息时间 · 随时可以休息`，说明行写明「已超过计划 X，计时继续；点『开始休息』才休息」。
-  - `FocusEngine.RestDue` / `StageOvertimeSeconds` 两个只读属性给 UI 用；`PauseResume()` 里那句 `Snooze()` 已去掉（没有弹窗就不需要「5 分钟后再提醒」）。
-  - 进入休息的唯一入口仍是「开始休息」按钮（主界面 / 迷你条）→ 不点就永远不休息。
+- **② 休息改成纯手动（v2.0.16 做错了，v2.0.17 已复原）**
+  - 原文完整版（**注意最后一句，之前漏读了**）：「我怎么感觉你又偷偷改我的休息逻辑了？」「它应该是左边的这样，只要我不点休息，就永远不会休息。」「`I:\AIstore\9.FocusStation\artifacts` 路径下，你去解包 `FocusStation-v2.0.14-dev.exe` 里面关于休息的逻辑和UI，**给我复原休息模块**。」
+  - **v2.0.16 的错误做法**（别再犯）：把番茄钟到点改成 `return "due-soft"`——不暂停、继续累计超时、只响一声不弹窗；挑战模式直接删掉 `challenge-break`；界面显示「超时 MM:SS」。
+  - **正确做法 = 复原 v2.0.14**：
+    - `Tick()` 番茄钟到点：`ReminderSent=true; State=Phase.Paused; return "due"`，并且把计时**卡在到点那一刻**（`countedUntil=LastUtc.AddSeconds(seconds)`，超时部分不计入专注时长）。
+    - `Tick()` 挑战模式：`if(RunSeconds>=NextBreakReminderSeconds){State=Phase.Paused;return "challenge-break";}` —— 每连续专注 `data.FocusMinutes` 分钟暂停一次并提醒。
+    - `HandleEvent`：`due` 弹窗「到休息时间了」+ 三个按钮（开始休息 / 继续专注 5 分钟 / 结束本次），关闭弹窗仍保持暂停；`challenge-break` 弹窗「休息提醒」+（开始休息 / 继续挑战 / 保持暂停）。
+    - `PauseResume()`：暂停态点「继续」时若有 `ReminderSent` 先 `Snooze()`（等于再给 5 分钟）。
+    - `RefreshDisplay()`：到点后阶段文案 `已到休息时间 · 等待确认`；Idle 说明行 `当前子任务到点自动暂停，确认后才进入休息。`
+    - 不要保留 `StageOvertimeSeconds` / `RestDue`，也不要有「超时 MM:SS」。
+  - **判定依据（可复现）**：直接读 EXE 字节，按 UTF-16LE 找文案。`FocusStation-v2.0.13/14/15-dev.exe` 都含「到休息时间了 / 计时已暂停 / 继续专注 5 分钟 / 休息提醒 / 已经连续专注 / 当前子任务到点自动暂停」，`v2.0.16-dev.exe` 全部消失，`v2.0.17` 全部回来。
+  - 关键区分：**「不点休息就不休息」是指不自动进入休息，不是不暂停**。到点必须暂停 + 弹窗，这才是他要的。
 
 ### 2.2 测试
-- `scripts/test.ps1` 全绿：逻辑单测 **179 断言** + 界面单测（含渲染截图）通过。
-- v2.0.16 新增断言：到点只返回 `due-soft`、状态仍是 `Focus`、超时继续计时并照样记入记录；挑战模式不再为休息提醒暂停；已完成列表按 `CompletedUtc` 倒序；缺 `CompletedUtc` 的老数据按 `UpdatedUtc` 兜底；到点不再弹窗（`Field(form,"notice")==null`）。
+- `scripts/test.ps1` 全绿：逻辑单测 **178 断言** + 界面单测（含渲染截图）通过。
+- v2.0.17：把 v2.0.16 那批「不暂停」断言全部还原（`due` + `Paused` + 等待时间不计入）。界面测试里的探针会打印 `due probe: due Paused`，看到 `due-soft` 就是又改错了。
+- v2.0.16 保留的断言：已完成列表按 `CompletedUtc` 倒序；缺 `CompletedUtc` 的老数据按 `UpdatedUtc` 兜底。
 - v2.0.15 新增断言：内置模板是 4 步且百分比 100/80/45/20；旧 6 步「写稿」自动迁移成 4 步「测评模板」且 `TemplateRevision==2`；用户改过的模板保持原样；新建弹窗标题预填、自动带 4 步子任务、模板名与步骤名逐个核对。
 - 顺手把三条与模板内容强绑定的老测试解耦（计时节点测试、5 行布局测试、保存测试），以后改模板内容不会再连带炸测试。
 
 ### 2.3 版本与构建
-- 版本号 v2.0.12 → v2.0.13 → v2.0.14 → v2.0.15 → **v2.0.16**（已同步 `scripts/build.ps1`、`README.md`、`docs/分支与发布流程.md`、`docs/CHANGELOG.md`）。
-- 产物：`artifacts/FocusStation-v2.0.16.exe`（main，无 DEV 宏）、`artifacts/FocusStation-v2.0.16-dev.exe`。
+- 版本号 v2.0.12 → v2.0.13 → v2.0.14 → v2.0.15 → v2.0.16 → **v2.0.17**（已同步 `scripts/build.ps1`、`README.md`、`docs/分支与发布流程.md`、`docs/CHANGELOG.md`）。
+- 产物：`artifacts/FocusStation-v2.0.17.exe`（main，无 DEV 宏）、`artifacts/FocusStation-v2.0.17-dev.exe`。
 
 ### 2.4 git
-- 提交：`89f7844`（v2.0.16）→ `f8fd4e6`（v2.0.15）→ `c6024c1`（v2.0.14）→ `e2a2963`（文档）→ `9384644`（v2.0.13）→ `1b08460` → `b59515a`（v2.0.12）→ `e5fb068` → `c14ccca`。
-- **2026-10-24 已全部推送成功**：`1b08460..89f7844  dev -> dev` / `main -> main`（v2.0.13、v2.0.14、v2.0.15、v2.0.16 一并上去了）。
+- 提交：`d1fb4fb`（v2.0.17 复原休息）→ `89f7844`（v2.0.16）→ `f8fd4e6`（v2.0.15）→ `c6024c1`（v2.0.14）→ `9384644`（v2.0.13）→ `b59515a`（v2.0.12）。
+- 2026-10-24 已推送：v2.0.13–v2.0.16 那批积压提交 + v2.0.17 一起上到 GitHub（dev / main 同步）。
 
 ---
 
 ## 3. 当前卡点 / 待定（需要用户拍板或信息）
 
 1. **腾讯文档状态未更新**：v2.0.12 第 1 条已被用户标「已修复」；v2.0.13 第 2 条、v2.0.14 两条、v2.0.15 两条、v2.0.16 两条都还没标。没擅自改表格，等用户定。
-2. **休息模块是「按需求改的新行为」，不是回滚**：v2.0.16 改掉了「到点暂停 + 弹窗」。如果用户其实想保留到点暂停、只是不要弹窗，把 `Tick()` 里 `due-soft` 那行改回 `State=Phase.Paused; return "due";` 并恢复 `HandleEvent` 的 `due` 分支即可（约 10 行）。
+2. **休息模块已按 v2.0.14 复原（v2.0.17）**：之前 v2.0.16 的「到点不暂停」已撤销。若以后还有人提「不想自动休息」，先分清两件事——**暂停**和**进入休息**是两回事；他要的是到点暂停 + 弹窗确认，不点「开始休息」不进休息。
 3. **旧版 EXE 未清理**：`artifacts/` 里留着 v2.0.10–v2.0.15 的旧包，不会自动删。
 4. **v2.0.11 问题② 配图格式**仍未获用户确认（当时按推断实现）。
 
@@ -147,6 +151,15 @@ FocusStation（专注小站）是一个 **Windows 桌面专注计时工具**（C
      ```
    - 本次本地代理 `http://127.0.0.1:7890` 连不上（端口随代理客户端变化）；**直连 github.com:443 可通**，所以上面命令不加 `-c http.proxy=`。
 9. **腾讯文档连接器会掉授权**：状态 `auth-required` 时 `tdoc_init` 直接报 `ERROR:no_token`，网页 fetch 和 `dop-api/opendoc` 都返回 401。只能走 `reconnect_plugin` 让用户重新授权。
+10. **读反馈必须读完整原文，别只读第一句（2026-10-24 血的教训）**：
+    - v2.0.16 那条「只要我不点休息，就永远不会休息」后面还跟了一句「去解包 `artifacts/FocusStation-v2.0.14-dev.exe`……**给我复原休息模块**」。漏读这句，就把「复原」错做成「改成新行为」，白改一版。
+    - 判断某个行为属于哪一版，不要靠记忆和推断——**直接读 EXE 字节比对文案**：
+      ```python
+      raw = open('artifacts/FocusStation-v2.0.15-dev.exe','rb').read()
+      print('到休息时间了'.encode('utf-16-le') in raw)   # .NET 字符串是 UTF-16LE
+      ```
+      比 `strings` 靠谱（`strings` 默认只抓 ASCII，中文全是漏的）。
+    - 用户说「你偷偷改了我的 XX」时，先做这份比对，用事实确认「改了哪一版、改成什么」，再动手。
 
 ---
 
